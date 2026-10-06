@@ -46,11 +46,30 @@
     }
 
     /* ===== Game board ===== */
+    /* The number of columns comes from JavaScript (--columns), so changing
+       difficulty later is just a matter of changing one number. */
     #board {
-      min-height: 200px;
-      border: 3px dashed var(--card-back);
-      border-radius: 12px;
-      padding: 12px;
+      display: grid;
+      grid-template-columns: repeat(var(--columns, 4), 1fr);
+      gap: 10px;
+      max-width: 560px;
+      margin: 16px auto;
+    }
+
+    /* ===== Cards =====
+       Each card is a real <button>, so it's keyboard-friendly for free. */
+    .card {
+      aspect-ratio: 3 / 4;
+      border: none;
+      border-radius: 10px;
+      background: var(--card-back);
+      color: white;
+      font-size: clamp(1.8rem, 8vw, 3rem);
+      cursor: pointer;
+    }
+    .card:focus-visible {
+      outline: 4px solid var(--focus);
+      outline-offset: 3px;
     }
   </style>
 </head>
@@ -62,13 +81,61 @@
       Clear the whole board in as few moves as you can!
     </p>
 
-    <!-- The cards will be added here by JavaScript in the next step. -->
+    <!-- The cards are created by JavaScript, so a new game is a fresh shuffle. -->
     <section id="board" aria-label="Game board"></section>
   </main>
 
   <script>
+    // ===== Settings =====
+    // 12 animals, enough for the largest grid we plan (6×4 = 12 pairs).
+    const ANIMALS = ["🐶", "🐱", "🐭", "🐰", "🦊", "🐻",
+                     "🐼", "🐨", "🐯", "🦁", "🐸", "🐵"];
+    const PAIR_COUNT = 8;   // Medium: 4×4 grid
+    const COLUMNS = 4;
+
+    // ===== State =====
+    let deck = [];  // the shuffled list of emoji, one entry per card
+
+    // ===== Game Logic =====
+
+    // Fisher–Yates shuffle: every ordering is equally likely.
+    // (The popular "sort with Math.random()" trick is biased, so we avoid it.)
+    function shuffle(items) {
+      const result = [...items];
+      for (let i = result.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+      }
+      return result;
+    }
+
+    // Pick the animals for this game, put each one in twice, then shuffle.
+    function buildDeck(pairCount) {
+      const chosen = shuffle(ANIMALS).slice(0, pairCount);
+      return shuffle([...chosen, ...chosen]);
+    }
+
+    // ===== Rendering =====
+    const board = document.getElementById("board");
+
+    function renderBoard() {
+      board.style.setProperty("--columns", COLUMNS);
+      board.replaceChildren();  // clear any cards from a previous game
+
+      deck.forEach((animal, index) => {
+        const card = document.createElement("button");
+        card.className = "card";
+        card.dataset.index = index;  // lets click handlers find this card's emoji
+        // Face down for now: show a "?" and don't reveal the animal to screen readers.
+        card.textContent = "?";
+        card.setAttribute("aria-label", `Card ${index + 1}, face down`);
+        board.appendChild(card);
+      });
+    }
+
     // ===== Initialization =====
-    // Nothing to set up yet. Game logic arrives in the next steps.
+    deck = buildDeck(PAIR_COUNT);
+    renderBoard();
   </script>
 </body>
 </html>
