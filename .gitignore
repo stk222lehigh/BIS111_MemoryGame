@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Local Claude Code settings (personal, not shared)
+.claude/settings.local.json
+
+# Shareable build outputs (regenerate from source)
+*.zip
+
+# Scratch work
+scratch/
+tmp/
