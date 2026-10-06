@@ -9,13 +9,18 @@ This is a **classroom demonstration project**. Its main purpose is to show stude
 
 ## Project Decision
 
-> _To be filled in after the class discussion._
+> _Decided by the class on 2026-10-06._
 
-- **Software type:** TBD
-- **Purpose / problem it solves:** TBD
-- **Target user:** TBD
-- **Core features (MVP):** TBD
-- **Stretch features (only if time allows):** TBD
+- **Software type:** Memory Match, a browser card game (single `index.html`)
+- **Purpose / problem it solves:** A quick, casual brain-teaser that exercises short-term memory. Flip cards two at a time to find matching pairs.
+- **Target user:** Anyone, any age, casual play. Simple rules, big tappable cards.
+- **Card theme:** Emoji, drawn as text, so the game needs no asset files
+- **Core features (MVP):**
+  1. Flip & match pairs: click two cards. Matches stay face up and mismatches flip back.
+  2. Move counter + timer
+  3. Win screen + "New Game" restart (reshuffles)
+  4. Difficulty levels: Easy 4×3 (6 pairs), Medium 4×4 (8 pairs), Hard 6×4 (12 pairs)
+- **Stretch features (only if time allows):** none chosen yet. Candidates: 3D flip animation; best score saved in `localStorage` labeled "You"; Web Audio sound effects; two-player mode ("Player 1" / "Player 2").
 
 ## Hard Constraints (Non-Negotiable)
 
