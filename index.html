@@ -61,15 +61,52 @@
     /* ===== Stats bar ===== */
     #stats {
       display: flex;
+      flex-wrap: wrap;  /* lets the button drop to a new line on phones */
       justify-content: center;
-      gap: 2rem;
-      margin: 0;
+      align-items: center;
+      gap: 0.5rem 2rem;
       font-size: 1.4rem;
       font-weight: bold;
     }
     /* Tabular digits stop the timer from wiggling as the numbers change. */
     #stats span {
       font-variant-numeric: tabular-nums;
+    }
+
+    /* ===== Buttons (New Game, Play Again) ===== */
+    .action-button {
+      font: inherit;
+      font-size: 1.2rem;
+      font-weight: bold;
+      padding: 0.4em 1.2em;
+      border: 3px solid var(--text);
+      border-radius: 8px;
+      background: var(--accent);
+      color: #1b1b1b;  /* dark text stays readable on orange in both themes */
+      cursor: pointer;
+    }
+    .action-button:focus-visible {
+      outline: 4px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    /* ===== Win dialog ===== */
+    #win-dialog {
+      border: 4px solid var(--accent);
+      border-radius: 16px;
+      padding: 1.5rem 2rem;
+      background: var(--bg);
+      color: var(--text);
+      text-align: center;
+      max-width: min(90vw, 420px);
+    }
+    #win-dialog h2 {
+      margin-top: 0;
+      font-size: 2rem;
+    }
+    /* ::backdrop is the dimmed layer the browser draws behind a modal dialog. */
+    #win-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.5);
     }
 
     /* ===== Cards =====
@@ -117,14 +154,23 @@
       Clear the whole board in as few moves as you can!
     </p>
 
-    <p id="stats">
+    <div id="stats">
       <span>Moves: <span id="moves">0</span></span>
       <span>Time: <span id="timer">0:00</span></span>
-    </p>
+      <button id="new-game" class="action-button" type="button">New Game</button>
+    </div>
 
     <!-- The cards are created by JavaScript, so a new game is a fresh shuffle. -->
     <section id="board" aria-label="Game board"></section>
   </main>
+
+  <!-- <dialog> is built into HTML: showModal() dims the page, keeps keyboard
+       focus inside the box, and lets Esc close it, with no extra code from us. -->
+  <dialog id="win-dialog" aria-labelledby="win-title">
+    <h2 id="win-title">🎉 You won!</h2>
+    <p id="win-summary"></p>
+    <button id="play-again" class="action-button" type="button">Play Again</button>
+  </dialog>
 
   <script>
     // ===== Settings =====
@@ -143,6 +189,7 @@
     let moves = 0;             // one move = one pair of cards flipped
     let secondsElapsed = 0;
     let timerId = null;        // null means the clock isn't running
+    let flipBackId = null;     // the pending "flip the wrong pair back" timeout
 
     // ===== Game Logic =====
 
@@ -163,6 +210,24 @@
       return shuffle([...chosen, ...chosen]);
     }
 
+    // Reset all the state, deal a fresh deck, and redraw everything.
+    function startNewGame() {
+      stopTimer();
+      // Cancel a flip-back still waiting from the old game. Otherwise it could
+      // fire a moment later and flip cards in the NEW game.
+      clearTimeout(flipBackId);
+
+      deck = buildDeck(PAIR_COUNT);
+      revealed = [];
+      matched = new Set();
+      isChecking = false;
+      moves = 0;
+      secondsElapsed = 0;
+
+      renderBoard();
+      updateStats();
+    }
+
     // Called once two cards are face up.
     function checkForMatch() {
       const [first, second] = revealed;
@@ -175,14 +240,15 @@
         revealed = [];
         updateCard(first);
         updateCard(second);
-        // Every card matched means the game is over, so stop the clock.
+        // Every card matched means the game is over.
         if (matched.size === deck.length) {
           stopTimer();
+          showWinDialog();
         }
       } else {
         // Leave the wrong pair visible briefly so the player can memorize it.
         isChecking = true;
-        setTimeout(() => {
+        flipBackId = setTimeout(() => {
           revealed = [];
           isChecking = false;
           updateCard(first);
@@ -220,9 +286,19 @@
     const movesDisplay = document.getElementById("moves");
     const timerDisplay = document.getElementById("timer");
 
+    const winDialog = document.getElementById("win-dialog");
+    const winSummary = document.getElementById("win-summary");
+
     function updateStats() {
       movesDisplay.textContent = moves;
       timerDisplay.textContent = formatTime(secondsElapsed);
+    }
+
+    function showWinDialog() {
+      winSummary.textContent =
+        `You found all ${deck.length / 2} pairs in ${moves} moves ` +
+        `and ${formatTime(secondsElapsed)}.`;
+      winDialog.showModal();
     }
 
     // Make one card's appearance match the current state.
@@ -279,12 +355,17 @@
       }
     }
 
+    function handlePlayAgain() {
+      winDialog.close();
+      startNewGame();
+    }
+
     board.addEventListener("click", handleCardClick);
+    document.getElementById("new-game").addEventListener("click", startNewGame);
+    document.getElementById("play-again").addEventListener("click", handlePlayAgain);
 
     // ===== Initialization =====
-    deck = buildDeck(PAIR_COUNT);
-    renderBoard();
-    updateStats();
+    startNewGame();
   </script>
 </body>
 </html>
