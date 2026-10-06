@@ -58,6 +58,20 @@
       margin: 16px auto;
     }
 
+    /* ===== Stats bar ===== */
+    #stats {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin: 0;
+      font-size: 1.4rem;
+      font-weight: bold;
+    }
+    /* Tabular digits stop the timer from wiggling as the numbers change. */
+    #stats span {
+      font-variant-numeric: tabular-nums;
+    }
+
     /* ===== Cards =====
        Each card is a real <button>, so it's keyboard-friendly for free. */
     .card {
@@ -103,6 +117,11 @@
       Clear the whole board in as few moves as you can!
     </p>
 
+    <p id="stats">
+      <span>Moves: <span id="moves">0</span></span>
+      <span>Time: <span id="timer">0:00</span></span>
+    </p>
+
     <!-- The cards are created by JavaScript, so a new game is a fresh shuffle. -->
     <section id="board" aria-label="Game board"></section>
   </main>
@@ -121,6 +140,9 @@
     let revealed = [];         // indexes of the (up to 2) cards currently turned up
     let matched = new Set();   // indexes of cards that have found their pair
     let isChecking = false;    // true during the 1-second pause, to block extra clicks
+    let moves = 0;             // one move = one pair of cards flipped
+    let secondsElapsed = 0;
+    let timerId = null;        // null means the clock isn't running
 
     // ===== Game Logic =====
 
@@ -144,6 +166,8 @@
     // Called once two cards are face up.
     function checkForMatch() {
       const [first, second] = revealed;
+      moves++;
+      updateStats();
 
       if (deck[first] === deck[second]) {
         matched.add(first);
@@ -151,6 +175,10 @@
         revealed = [];
         updateCard(first);
         updateCard(second);
+        // Every card matched means the game is over, so stop the clock.
+        if (matched.size === deck.length) {
+          stopTimer();
+        }
       } else {
         // Leave the wrong pair visible briefly so the player can memorize it.
         isChecking = true;
@@ -163,8 +191,39 @@
       }
     }
 
+    // ===== Timer =====
+
+    // The clock starts on the first flip, not on page load,
+    // so reading the instructions doesn't cost the player time.
+    function startTimer() {
+      if (timerId !== null) return;  // already running
+      timerId = setInterval(() => {
+        secondsElapsed++;
+        updateStats();
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerId);
+      timerId = null;
+    }
+
+    // 75 seconds -> "1:15"
+    function formatTime(totalSeconds) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = String(totalSeconds % 60).padStart(2, "0");
+      return `${minutes}:${seconds}`;
+    }
+
     // ===== Rendering =====
     const board = document.getElementById("board");
+    const movesDisplay = document.getElementById("moves");
+    const timerDisplay = document.getElementById("timer");
+
+    function updateStats() {
+      movesDisplay.textContent = moves;
+      timerDisplay.textContent = formatTime(secondsElapsed);
+    }
 
     // Make one card's appearance match the current state.
     // Every change goes through here, so the screen never disagrees with the data.
@@ -211,6 +270,7 @@
       // Ignore clicks that shouldn't count.
       if (isChecking || matched.has(index) || revealed.includes(index)) return;
 
+      startTimer();  // does nothing if the clock is already running
       revealed.push(index);
       updateCard(index);
 
@@ -224,6 +284,7 @@
     // ===== Initialization =====
     deck = buildDeck(PAIR_COUNT);
     renderBoard();
+    updateStats();
   </script>
 </body>
 </html>
