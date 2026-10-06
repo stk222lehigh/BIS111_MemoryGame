@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Memory Match</title>
+  <style>
+    /* ===== Theme colors =====
+       Kept as variables so a dark theme only has to swap the values. */
+    :root {
+      --bg: #f4f1ea;
+      --text: #1b1b1b;
+      --card-back: #2b4c7e;
+      --card-face: #ffffff;
+      --accent: #e07a1f;
+      --focus: #ffbf00;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #16181d;
+        --text: #f2f2f2;
+        --card-back: #3d6bb3;
+        --card-face: #2a2d35;
+        --accent: #ffa64d;
+      }
+    }
+
+    /* ===== Base layout =====
+       Large default font so it's readable from the back of the room. */
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      font-size: 20px;
+      line-height: 1.5;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    h1 {
+      margin: 0.2em 0;
+      font-size: 2.2rem;
+    }
+
+    /* ===== Game board ===== */
+    #board {
+      min-height: 200px;
+      border: 3px dashed var(--card-back);
+      border-radius: 12px;
+      padding: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Memory Match</h1>
+    <p>
+      Flip two cards at a time to find matching pairs.
+      Clear the whole board in as few moves as you can!
+    </p>
+
+    <!-- The cards will be added here by JavaScript in the next step. -->
+    <section id="board" aria-label="Game board"></section>
+  </main>
+
+  <script>
+    // ===== Initialization =====
+    // Nothing to set up yet. Game logic arrives in the next steps.
+  </script>
+</body>
+</html>
