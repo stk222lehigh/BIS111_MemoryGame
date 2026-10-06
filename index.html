@@ -14,6 +14,7 @@
       --card-face: #ffffff;
       --accent: #e07a1f;
       --focus: #ffbf00;
+      --matched: #d8f0d2;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -22,6 +23,7 @@
         --card-back: #3d6bb3;
         --card-face: #2a2d35;
         --accent: #ffa64d;
+        --matched: #24452a;
       }
     }
 
@@ -59,8 +61,9 @@
     /* ===== Cards =====
        Each card is a real <button>, so it's keyboard-friendly for free. */
     .card {
+      position: relative;  /* anchors the ✓ badge on matched cards */
       aspect-ratio: 3 / 4;
-      border: none;
+      border: 3px solid transparent;
       border-radius: 10px;
       background: var(--card-back);
       color: white;
@@ -70,6 +73,25 @@
     .card:focus-visible {
       outline: 4px solid var(--focus);
       outline-offset: 3px;
+    }
+    .card.face-up {
+      background: var(--card-face);
+      border-color: var(--card-back);
+    }
+    /* Matched cards get a different color AND a ✓ mark,
+       because color alone can't be the only signal. */
+    .card.matched {
+      background: var(--matched);
+      border-color: transparent;
+      cursor: default;
+    }
+    .card.matched::after {
+      content: "✓";
+      position: absolute;
+      top: 4px;
+      right: 8px;
+      font-size: 1.2rem;
+      color: var(--text);
     }
   </style>
 </head>
@@ -92,9 +114,13 @@
                      "🐼", "🐨", "🐯", "🦁", "🐸", "🐵"];
     const PAIR_COUNT = 8;   // Medium: 4×4 grid
     const COLUMNS = 4;
+    const MISMATCH_DELAY_MS = 1000;  // how long a wrong pair stays visible
 
     // ===== State =====
-    let deck = [];  // the shuffled list of emoji, one entry per card
+    let deck = [];             // the shuffled list of emoji, one entry per card
+    let revealed = [];         // indexes of the (up to 2) cards currently turned up
+    let matched = new Set();   // indexes of cards that have found their pair
+    let isChecking = false;    // true during the 1-second pause, to block extra clicks
 
     // ===== Game Logic =====
 
@@ -115,8 +141,50 @@
       return shuffle([...chosen, ...chosen]);
     }
 
+    // Called once two cards are face up.
+    function checkForMatch() {
+      const [first, second] = revealed;
+
+      if (deck[first] === deck[second]) {
+        matched.add(first);
+        matched.add(second);
+        revealed = [];
+        updateCard(first);
+        updateCard(second);
+      } else {
+        // Leave the wrong pair visible briefly so the player can memorize it.
+        isChecking = true;
+        setTimeout(() => {
+          revealed = [];
+          isChecking = false;
+          updateCard(first);
+          updateCard(second);
+        }, MISMATCH_DELAY_MS);
+      }
+    }
+
     // ===== Rendering =====
     const board = document.getElementById("board");
+
+    // Make one card's appearance match the current state.
+    // Every change goes through here, so the screen never disagrees with the data.
+    function updateCard(index) {
+      const card = board.children[index];
+      const isMatched = matched.has(index);
+      const isFaceUp = isMatched || revealed.includes(index);
+
+      card.textContent = isFaceUp ? deck[index] : "?";
+      card.classList.toggle("face-up", isFaceUp);
+      card.classList.toggle("matched", isMatched);
+      // aria-disabled (not disabled) keeps keyboard focus from jumping away.
+      card.setAttribute("aria-disabled", isMatched);
+
+      const status = isMatched ? "matched" : isFaceUp ? "face up" : "face down";
+      // Only reveal the animal's name to screen readers when it's visible on screen.
+      const label = isFaceUp ? `Card ${index + 1}, ${deck[index]}, ${status}`
+                             : `Card ${index + 1}, ${status}`;
+      card.setAttribute("aria-label", label);
+    }
 
     function renderBoard() {
       board.style.setProperty("--columns", COLUMNS);
@@ -125,13 +193,33 @@
       deck.forEach((animal, index) => {
         const card = document.createElement("button");
         card.className = "card";
-        card.dataset.index = index;  // lets click handlers find this card's emoji
-        // Face down for now: show a "?" and don't reveal the animal to screen readers.
-        card.textContent = "?";
-        card.setAttribute("aria-label", `Card ${index + 1}, face down`);
+        card.dataset.index = index;  // lets the click handler know which card it is
         board.appendChild(card);
+        updateCard(index);
       });
     }
+
+    // ===== Event Handlers =====
+
+    // One listener on the board handles every card ("event delegation"),
+    // so we don't have to attach 16 separate listeners.
+    function handleCardClick(event) {
+      const card = event.target.closest(".card");
+      if (!card) return;  // clicked the gap between cards
+      const index = Number(card.dataset.index);
+
+      // Ignore clicks that shouldn't count.
+      if (isChecking || matched.has(index) || revealed.includes(index)) return;
+
+      revealed.push(index);
+      updateCard(index);
+
+      if (revealed.length === 2) {
+        checkForMatch();
+      }
+    }
+
+    board.addEventListener("click", handleCardClick);
 
     // ===== Initialization =====
     deck = buildDeck(PAIR_COUNT);
