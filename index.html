@@ -48,14 +48,48 @@
     }
 
     /* ===== Game board ===== */
-    /* The number of columns comes from JavaScript (--columns), so changing
-       difficulty later is just a matter of changing one number. */
+    /* The number of columns comes from JavaScript (--columns), so each
+       difficulty only has to change one number. The board also grows wider
+       with more columns, so Hard's cards aren't squeezed on a big screen. */
     #board {
       display: grid;
       grid-template-columns: repeat(var(--columns, 4), 1fr);
       gap: 10px;
-      max-width: 560px;
+      max-width: calc(var(--columns, 4) * 140px);
       margin: 16px auto;
+    }
+
+    /* ===== Difficulty picker ===== */
+    #difficulty {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      font-weight: bold;
+    }
+    .level-button {
+      font: inherit;
+      padding: 0.3em 1em;
+      border: 3px solid var(--card-back);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .level-button:focus-visible {
+      outline: 4px solid var(--focus);
+      outline-offset: 3px;
+    }
+    /* The chosen level is filled in AND gets a ✓, so the signal isn't color alone.
+       Styling by [aria-pressed] means the look comes from the accessibility state. */
+    .level-button[aria-pressed="true"] {
+      background: var(--card-back);
+      color: white;
+    }
+    .level-button[aria-pressed="true"]::before {
+      content: "✓ ";
     }
 
     /* ===== Stats bar ===== */
@@ -118,7 +152,8 @@
       border-radius: 10px;
       background: var(--card-back);
       color: white;
-      font-size: clamp(1.8rem, 8vw, 3rem);
+      padding: 0;  /* the browser's default button padding crowds tiny Hard-mode cards */
+      font-size: clamp(1.4rem, 7vw, 3rem);
       cursor: pointer;
     }
     .card:focus-visible {
@@ -139,9 +174,10 @@
     .card.matched::after {
       content: "✓";
       position: absolute;
-      top: 4px;
-      right: 8px;
-      font-size: 1.2rem;
+      /* em units scale the badge with the card, so it stays clear of the emoji. */
+      top: 0.1em;
+      right: 0.25em;
+      font-size: 0.4em;
       color: var(--text);
     }
   </style>
@@ -153,6 +189,14 @@
       Flip two cards at a time to find matching pairs.
       Clear the whole board in as few moves as you can!
     </p>
+
+    <!-- Toggle buttons: aria-pressed tells screen readers which one is selected. -->
+    <div id="difficulty" role="group" aria-labelledby="difficulty-label">
+      <span id="difficulty-label">Difficulty:</span>
+      <button class="level-button" type="button" data-level="easy">Easy</button>
+      <button class="level-button" type="button" data-level="medium">Medium</button>
+      <button class="level-button" type="button" data-level="hard">Hard</button>
+    </div>
 
     <div id="stats">
       <span>Moves: <span id="moves">0</span></span>
@@ -177,11 +221,16 @@
     // 12 animals, enough for the largest grid we plan (6×4 = 12 pairs).
     const ANIMALS = ["🐶", "🐱", "🐭", "🐰", "🦊", "🐻",
                      "🐼", "🐨", "🐯", "🦁", "🐸", "🐵"];
-    const PAIR_COUNT = 8;   // Medium: 4×4 grid
-    const COLUMNS = 4;
+    // Each level is just two numbers. Rows follow from pairs ÷ columns.
+    const DIFFICULTIES = {
+      easy:   { pairs: 6,  columns: 4 },  // 4×3
+      medium: { pairs: 8,  columns: 4 },  // 4×4
+      hard:   { pairs: 12, columns: 6 },  // 6×4
+    };
     const MISMATCH_DELAY_MS = 1000;  // how long a wrong pair stays visible
 
     // ===== State =====
+    let currentLevel = "medium";
     let deck = [];             // the shuffled list of emoji, one entry per card
     let revealed = [];         // indexes of the (up to 2) cards currently turned up
     let matched = new Set();   // indexes of cards that have found their pair
@@ -217,7 +266,7 @@
       // fire a moment later and flip cards in the NEW game.
       clearTimeout(flipBackId);
 
-      deck = buildDeck(PAIR_COUNT);
+      deck = buildDeck(DIFFICULTIES[currentLevel].pairs);
       revealed = [];
       matched = new Set();
       isChecking = false;
@@ -226,6 +275,7 @@
 
       renderBoard();
       updateStats();
+      updateLevelButtons();
     }
 
     // Called once two cards are face up.
@@ -294,6 +344,16 @@
       timerDisplay.textContent = formatTime(secondsElapsed);
     }
 
+    const levelButtons = document.querySelectorAll(".level-button");
+
+    // Mark exactly one level button as pressed. CSS handles the look.
+    function updateLevelButtons() {
+      levelButtons.forEach((button) => {
+        const isCurrent = button.dataset.level === currentLevel;
+        button.setAttribute("aria-pressed", isCurrent);
+      });
+    }
+
     function showWinDialog() {
       winSummary.textContent =
         `You found all ${deck.length / 2} pairs in ${moves} moves ` +
@@ -322,7 +382,7 @@
     }
 
     function renderBoard() {
-      board.style.setProperty("--columns", COLUMNS);
+      board.style.setProperty("--columns", DIFFICULTIES[currentLevel].columns);
       board.replaceChildren();  // clear any cards from a previous game
 
       deck.forEach((animal, index) => {
@@ -360,7 +420,16 @@
       startNewGame();
     }
 
+    // Switching level deals a new game right away, since the grid size changes.
+    function handleLevelClick(event) {
+      const button = event.target.closest(".level-button");
+      if (!button) return;
+      currentLevel = button.dataset.level;
+      startNewGame();
+    }
+
     board.addEventListener("click", handleCardClick);
+    document.getElementById("difficulty").addEventListener("click", handleLevelClick);
     document.getElementById("new-game").addEventListener("click", startNewGame);
     document.getElementById("play-again").addEventListener("click", handlePlayAgain);
 
