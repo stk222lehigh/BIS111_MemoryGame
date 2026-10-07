@@ -311,6 +311,31 @@
       to { transform: translateX(160vw); }
     }
 
+    /* A face-down card shakes, as if something knocked from inside. */
+    .card.knocking {
+      animation: knock 0.25s ease-in-out 4;
+    }
+    @keyframes knock {
+      25% { transform: translateX(-3px) rotate(-1.5deg); }
+      75% { transform: translateX(3px) rotate(1.5deg); }
+    }
+
+    /* The card backs slowly drift to a different color, then back. */
+    .card-back {
+      transition: filter 2s ease;
+    }
+    #board.color-drift .card-back {
+      filter: hue-rotate(110deg);
+    }
+
+    /* The whole board slowly leans, like the room is tilting. */
+    #board {
+      transition: transform 2.5s ease-in-out;
+    }
+    #board.tilted {
+      transform: rotate(1.5deg);
+    }
+
     /* Little paw prints walk across the screen and fade away. */
     .paw-print {
       position: fixed;
@@ -444,10 +469,15 @@
     @media (prefers-reduced-motion: reduce) {
       .card-inner,
       .card-symbol,
+      .card-back,
       #dimmer {
         transition: none;
       }
+      #board.tilted {
+        transform: none;
+      }
       .eye,
+      .card.knocking,
       h1.glitch,
       #board.breathing .card:not(.face-up) .card-inner,
       .floater,
@@ -599,13 +629,16 @@
     const SCORES_KEY = "memoryMatch.v3.bestScores";
     const MUTE_KEY = "memoryMatch.muted";
 
-    // How many odd behaviors happen in one game, out of the 10 in ANOMALIES.
+    // Odd behaviors come in two phases:
+    //  1. Opening: 4 or 5 of them, at random moves from 2 to 12. A Hard game
+    //     always takes at least 12 moves, so every one of these gets its turn.
+    //  2. After move 12: one more every 3 to 4 moves, until the game ends.
     const MIN_ANOMALIES = 4;
     const MAX_ANOMALIES = 5;
-    // They're triggered at random moves between these two numbers. A Hard game
-    // always takes at least 12 moves, so every planned anomaly gets its turn.
     const FIRST_ANOMALY_MOVE = 2;
     const LAST_ANOMALY_MOVE = 12;
+    const LATE_GAP_MIN = 3;
+    const LATE_GAP_MAX = 4;
 
     // Text for some of the anomalies.
     const TITLE_TEXT = "Memory Match";
@@ -632,6 +665,7 @@
       miss:  [[220, 0, 0.2]],
       // Two notes almost (but not quite) the same pitch make an uneasy "wobble".
       eerie: [[196, 0, 1.2, 0.07], [201, 0, 1.2, 0.07]],
+      knock: [[110, 0, 0.08, 0.3], [110, 0.2, 0.08, 0.3]],
       party: [[523, 0, 0.12], [659, 0.12, 0.12], [784, 0.24, 0.12], [1047, 0.36, 0.4],
               [784, 0.8, 0.1], [1047, 0.9, 0.5]],
     };
@@ -651,7 +685,9 @@
     let timerId = null;        // null means the clock isn't running
     let flipBackId = null;     // the pending "flip the wrong pair back" timeout
     let winDialogId = null;    // the pending "show the win dialog" timeout
-    let plannedAnomalies = []; // this game's anomalies: { anomaly, atMove }
+    let plannedAnomalies = []; // this game's opening anomalies: { anomaly, atMove }
+    let usedAnomalies = new Set(); // names already shown this game (avoids repeats)
+    let nextLateMove = 0;      // the move for the next anomaly after move 12
     let anomalyTimers = [];    // pending anomaly timeouts, cancelled on a new game
     let audioContext = null;   // created on the first sound (see playSound)
     let isMuted = loadMuted();
@@ -863,25 +899,31 @@
     }
 
     // ===== Anomalies =====
-    // Ten small, harmless oddities. Each game picks 4 or 5 of them at random,
-    // so no two games feel the same. Every one either undoes itself after a few
-    // seconds or is purely cosmetic: none of them change the cards' positions,
-    // the score, or the real time.
+    // Sixteen small, harmless oddities, picked at random so no two games feel
+    // the same. Every one either undoes itself after a few seconds or is purely
+    // cosmetic: none of them change the cards' positions, the score, or the
+    // real time.
 
     const ANOMALIES = [
-      { name: "Watching eye",   run: watchingEye },
-      { name: "Title glitch",   run: titleGlitch },
-      { name: "Lights dim",     run: lightsDim },
-      { name: "Whisper",        run: whisper },
-      { name: "Move hiccup",    run: moveHiccup },
-      { name: "Time slip",      run: timeSlip },
+      { name: "Watching eye",    run: watchingEye },
+      { name: "Title glitch",    run: titleGlitch },
+      { name: "Lights dim",      run: lightsDim },
+      { name: "Whisper",         run: whisper },
+      { name: "Move hiccup",     run: moveHiccup },
+      { name: "Time slip",       run: timeSlip },
       { name: "Breathing cards", run: breathingCards },
-      { name: "Passing shadow", run: passingShadow },
-      { name: "Look away",      run: lookAway },
-      { name: "Paw prints",     run: pawPrints },
+      { name: "Passing shadow",  run: passingShadow },
+      { name: "Look away",       run: lookAway },
+      { name: "Paw prints",      run: pawPrints },
+      { name: "Question flip",   run: questionFlip },
+      { name: "Knocking",        run: knocking },
+      { name: "Color drift",     run: colorDrift },
+      { name: "Listening",       run: listening },
+      { name: "Wrong picture",   run: wrongPicture },
+      { name: "Tilted room",     run: tiltedRoom },
     ];
 
-    // Choose this game's anomalies and the move number at which each happens.
+    // Choose the opening anomalies and the move at which each happens.
     function planAnomalies() {
       const count = randomInt(MIN_ANOMALIES, MAX_ANOMALIES);
       const chosen = shuffle(ANOMALIES).slice(0, count);
@@ -893,15 +935,36 @@
       const triggerMoves = shuffle(possibleMoves).slice(0, count).sort((a, b) => a - b);
 
       plannedAnomalies = chosen.map((anomaly, i) => ({ anomaly, atMove: triggerMoves[i] }));
+      usedAnomalies = new Set(chosen.map((anomaly) => anomaly.name));
+      nextLateMove = LAST_ANOMALY_MOVE + randomInt(LATE_GAP_MIN, LATE_GAP_MAX);
     }
 
-    // After each move, run any anomaly planned for it, after a short random
-    // pause, so it doesn't feel directly tied to the click.
+    // For the late phase: an anomaly not seen yet this game. Once all 16 have
+    // appeared, start over, so repeats only happen in very long games.
+    function pickFreshAnomaly() {
+      let candidates = ANOMALIES.filter((anomaly) => !usedAnomalies.has(anomaly.name));
+      if (candidates.length === 0) {
+        usedAnomalies = new Set();
+        candidates = ANOMALIES;
+      }
+      const anomaly = randomItem(candidates);
+      usedAnomalies.add(anomaly.name);
+      return anomaly;
+    }
+
+    // After each move, run whatever is due, after a short random pause, so
+    // it doesn't feel directly tied to the click.
     function triggerAnomaliesForThisMove() {
+      // Phase 1: the opening plan.
       for (const plan of plannedAnomalies) {
         if (plan.atMove === moves) {
           later(plan.anomaly.run, randomInt(400, 1500));
         }
+      }
+      // Phase 2: after move 12, one every 3 to 4 moves.
+      if (moves === nextLateMove) {
+        later(pickFreshAnomaly().run, randomInt(400, 1500));
+        nextLateMove = moves + randomInt(LATE_GAP_MIN, LATE_GAP_MAX);
       }
     }
 
@@ -917,9 +980,16 @@
       titleHeading.textContent = TITLE_TEXT;
       titleHeading.classList.remove("glitch");
       dimmer.classList.remove("on");
-      board.classList.remove("breathing");
+      board.classList.remove("breathing", "color-drift", "tilted");
+      updateSoundButton();
       backwardTicks = 0;
       displayedSeconds = secondsElapsed;
+      // Put every card's back and picture right again (eyes, "¿", wrong pictures).
+      [...board.children].forEach((card, index) => {
+        card.classList.remove("knocking");
+        card.querySelector(".card-back").textContent = "?";
+        card.querySelector(".card-symbol").textContent = deck[index].symbol;
+      });
       // Temporary effect elements (shadow, paw prints) are tagged so they're easy to find.
       document.querySelectorAll(".anomaly-temp").forEach((element) => element.remove());
     }
@@ -1024,6 +1094,55 @@
       later(() => {
         document.querySelectorAll(".paw-print").forEach((print) => print.remove());
       }, 6000);
+    }
+
+    // 11. A few "?" turn upside down, then flip back.
+    function questionFlip() {
+      const backs = shuffle(faceDownCards()).slice(0, 3).map((card) => card.querySelector(".card-back"));
+      backs.forEach((back) => { back.textContent = "¿"; });
+      later(() => backs.forEach((back) => { back.textContent = "?"; }), 2500);
+    }
+
+    // 12. A face-down card shakes, as if knocked from inside.
+    function knocking() {
+      const card = randomItem(faceDownCards());
+      if (!card) return;
+      card.classList.add("knocking");
+      playSound("knock");
+      later(() => card.classList.remove("knocking"), 1100);
+    }
+
+    // 13. The card backs slowly drift to a different color, then back.
+    function colorDrift() {
+      board.classList.add("color-drift");
+      later(() => board.classList.remove("color-drift"), 4500);
+    }
+
+    // 14. The sound button briefly says it's listening.
+    function listening() {
+      soundButton.textContent = "👂 Listening…";
+      later(updateSoundButton, 2500);
+    }
+
+    // 15. A matched card shows the wrong picture for a moment.
+    // If nothing is matched yet, some "?" flip upside down instead.
+    function wrongPicture() {
+      const matchedIndexes = [...matched];
+      if (matchedIndexes.length === 0) {
+        questionFlip();
+        return;
+      }
+      const index = randomItem(matchedIndexes);
+      const symbol = board.children[index].querySelector(".card-symbol");
+      const others = THEMES[currentTheme].cards.filter((card) => card.name !== deck[index].name);
+      symbol.textContent = randomItem(others).symbol;
+      later(() => { symbol.textContent = deck[index].symbol; }, 1500);
+    }
+
+    // 16. The whole board slowly leans, then straightens up.
+    function tiltedRoom() {
+      board.classList.add("tilted");
+      later(() => board.classList.remove("tilted"), 3500);
     }
 
     // ===== Sound =====
