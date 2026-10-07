@@ -20,6 +20,7 @@ This is a **classroom demonstration project**. Its main purpose is to show stude
   2. Move counter + timer
   3. Win screen + "New Game" restart (reshuffles)
   4. Difficulty levels: Easy 4×3 (6 pairs), Medium 4×4 (8 pairs), Hard 6×4 (12 pairs)
+- **Version 2 (`index_v2.html`):** changes chosen from the student feedback survey. See `PATCH-NOTES.md` for what was and wasn't changed, and why. `index.html` stays as version 1.
 - **Stretch features (only if time allows):** none chosen yet. Candidates: 3D flip animation; best score saved in `localStorage` labeled "You"; Web Audio sound effects; two-player mode ("Player 1" / "Player 2").
 
 ## Hard Constraints (Non-Negotiable)
