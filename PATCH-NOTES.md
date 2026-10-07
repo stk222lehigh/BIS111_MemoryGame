@@ -37,7 +37,7 @@ is kept unchanged as version 1). There were **29 responses**. Each suggestion wa
   - The wait is shorter: **0.7 seconds**, down from 1 second.
   - **Clicking any card during the wait** flips the wrong pair back immediately and turns over
     the card you clicked, so fast players never have to wait.
-- **Note:** one student described the delay as "a few seconds". It was actually 1 second, so the
+- **Note:** one student thought the delay lasted several seconds. It was actually 1 second, so the
   wait *felt* longer than it was. That's useful to know when designing game timing.
 
 ### 4. Flip animation
@@ -146,9 +146,9 @@ we built the version that fits the rules instead.
 
 | Comment | Reason |
 |---|---|
-| "…which indicators I wanted to see in my stock analysis to determine either to buy or sell" | About a different assignment, not this game. |
-| "Variable issues" | Too vague to identify a problem. |
-| "Make it smaller to play via course site" | Not a code change: uploading the file to the course site is a sharing decision. Change #1 (fit to screen) should help the game display well inside a course-site window. |
+| A comment about choosing indicators for a stock analysis | About a different assignment, not this game. |
+| A two-word comment mentioning "issues" with no details | Too vague to identify a problem. |
+| A request to make the game fit when played through the course website | Not a code change: uploading the file to the course site is a sharing decision. Change #1 (fit to screen) should help the game display well inside a course-site window. |
 
 ---
 

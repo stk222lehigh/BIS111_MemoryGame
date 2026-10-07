@@ -93,7 +93,8 @@ The code will be read and discussed in front of a class, so it should be easy to
 5. **Share:** hand out the `.html` file, or a `.zip` of it with `assets/` if the project uses one.
 
 ### Version control
-- The project uses git on the `main` branch. There's no remote; it stays local unless the class decides otherwise.
+- The project uses git on the `main` branch. It's published as a **public** GitHub repo: `stk222lehigh/BIS111_MemoryGame` (remote `origin`). Anything committed and pushed is visible to everyone.
+- Commits use the GitHub noreply address, not a personal email.
 - **Commit after each working step** with a short message in plain English (e.g. "Add flip animation to cards"), so the class can see the history and roll back a live demo if needed.
 - Every commit should leave `index.html` in a working state.
 - Never commit personal information, and don't commit `.zip` packages (they're built from the source when shared).
