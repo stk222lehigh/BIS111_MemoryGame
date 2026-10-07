@@ -21,6 +21,7 @@
       --focus: #ffbf00;
       --matched: #d8f0d2;
       --shadow-figure: rgba(0, 0, 0, 0.35);
+      --fog: rgba(205, 220, 232, 0.9);
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -31,6 +32,7 @@
         --accent: #ffa64d;
         --matched: #24452a;
         --shadow-figure: rgba(255, 255, 255, 0.12);  /* a black shadow wouldn't show */
+        --fog: rgba(120, 140, 160, 0.55);
       }
     }
 
@@ -69,6 +71,7 @@
     .intro {
       margin: 0.2em 0 0.5em;
       text-align: center;
+      transition: transform 0.6s ease;  /* for the "mirror text" anomaly */
     }
 
     /* One focus style for every control, so keyboard users always see where they are. */
@@ -478,7 +481,7 @@
       margin: 0;
       padding: 0;
       display: grid;
-      grid-template-columns: repeat(8, 1fr);
+      grid-template-columns: repeat(6, 1fr);
       gap: 0.4rem;
     }
     /* On phones, 4 per row keeps each tile big enough to tap. */
@@ -532,6 +535,40 @@
       font-size: 1rem;
     }
 
+    /* The intro sentence flips into mirror writing, then back. */
+    .intro.mirrored {
+      transform: scaleX(-1);
+    }
+
+    /* A pale fog creeps up from the bottom of the screen, then fades. */
+    #fog {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;  /* clicks pass straight through to the cards */
+      background: linear-gradient(to top, var(--fog), transparent 65%);
+      opacity: 0;
+      transition: opacity 1.5s ease;
+    }
+    #fog.on {
+      opacity: 1;
+    }
+
+    /* A face-down card lifts slightly, as if peeking. 25° is too little
+       to reveal its front. */
+    .card.peeking .card-inner {
+      transform: rotateY(-25deg);
+    }
+
+    /* The New Game button jitters nervously. */
+    #new-game.nervous {
+      animation: nervous 0.3s ease-in-out 4;
+    }
+    @keyframes nervous {
+      25% { transform: translateX(-4px) rotate(-2deg); }
+      75% { transform: translateX(4px) rotate(2deg); }
+    }
+
     /* ===== Reduced motion =====
        Respect the "reduce motion" system setting: no flipping, twitching,
        breathing, drifting, or bobbing. The odd behaviors that don't move
@@ -540,14 +577,18 @@
       .card-inner,
       .card-symbol,
       .card-back,
-      #dimmer {
+      .intro,
+      #dimmer,
+      #fog {
         transition: none;
       }
-      #board.tilted {
+      #board.tilted,
+      .card.peeking .card-inner {
         transform: none;
       }
       .eye,
       .card.knocking,
+      #new-game.nervous,
       h1.glitch,
       #board.breathing .card:not(.face-up) .card-inner,
       .floater,
@@ -564,7 +605,7 @@
   <main>
     <header>
       <h1 id="title">Memory Match</h1>
-      <p class="intro">
+      <p class="intro" id="intro">
         Flip two cards at a time to find matching pairs. Fewer moves earn more stars!
       </p>
     </header>
@@ -600,8 +641,10 @@
     </div>
   </main>
 
-  <!-- The "lights dimming" effect. Always in the page, invisible until switched on. -->
+  <!-- The "lights dimming" and "fog" effects. Always in the page, invisible
+       until switched on. -->
   <div id="dimmer" aria-hidden="true"></div>
+  <div id="fog" aria-hidden="true"></div>
 
   <!-- <dialog> is built into HTML: showModal() keeps keyboard focus inside
        and lets Esc close it, with no extra code from us. -->
@@ -647,8 +690,7 @@
         <p id="oddity-note" class="oddity-note"></p>
       </section>
 
-      <!-- autofocus: the dialog starts on this button, not on the first tile. -->
-      <button id="play-again" class="action-button" type="button" autofocus>Play Again</button>
+      <button id="play-again" class="action-button" type="button">Play Again</button>
     </div>
   </dialog>
 
@@ -714,16 +756,10 @@
     // only matters if many sounds ever pile up at once.
     const MAX_TOTAL_VOLUME = 0.6;
 
-    // Odd behaviors come in two phases:
-    //  1. Opening: 4 or 5 of them, at random moves from 2 to 12. A Hard game
-    //     always takes at least 12 moves, so every one of these gets its turn.
-    //  2. After move 12: one more every 3 to 4 moves, until the game ends.
-    const MIN_ANOMALIES = 4;
-    const MAX_ANOMALIES = 5;
-    const FIRST_ANOMALY_MOVE = 2;
-    const LAST_ANOMALY_MOVE = 12;
-    const LATE_GAP_MIN = 3;
-    const LATE_GAP_MAX = 4;
+    // An odd behavior happens every 3 to 4 moves, all game long: the first at
+    // move 3 or 4, the next 3 or 4 moves after that, and so on.
+    const ANOMALY_GAP_MIN = 3;
+    const ANOMALY_GAP_MAX = 4;
 
     // Text for some of the anomalies.
     const TITLE_TEXT = "Memory Match";
@@ -737,6 +773,8 @@
       "You've played this before, haven't you?",
     ];
     const WRONG_MOVE_COUNTS = ["13", "??", "∞", "-1"];
+    const ECHOES = ["Hello? …hello? …hello?", "Is anyone there? …there? …there?"];
+    const COUNTDOWN = ["3…", "2…", "1…", "…never mind."];
 
     // Extra party guests for the win screen, added to the theme's own pictures.
     const PARTY_EXTRAS = ["🚀", "🪐", "⭐", "🛸", "🧑‍🚀", "🎈", "🎉", "🌙"];
@@ -767,12 +805,12 @@
     let secondsElapsed = 0;    // the REAL time, used for scores
     let displayedSeconds = 0;  // the time on screen (the "time slip" anomaly fiddles with it)
     let backwardTicks = 0;     // while above 0, the clock on screen runs backwards
+    let isClockBlank = false;  // true while the "clock blank" anomaly hides the time
     let timerId = null;        // null means the clock isn't running
     let flipBackId = null;     // the pending "flip the wrong pair back" timeout
     let winDialogId = null;    // the pending "show the win dialog" timeout
-    let plannedAnomalies = []; // this game's opening anomalies: { anomaly, atMove }
     let usedAnomalies = new Set(); // names already shown this game (avoids repeats)
-    let nextLateMove = 0;      // the move for the next anomaly after move 12
+    let nextAnomalyMove = 0;   // the move at which the next anomaly happens
     // For the win-screen collection. Kept only while the page is open (not saved),
     // so closing or reloading the page starts a fresh collection.
     let spottedThisSession = new Set();     // names of every anomaly actually seen
@@ -990,7 +1028,7 @@
     }
 
     // ===== Anomalies =====
-    // Sixteen small, harmless oddities, picked at random so no two games feel
+    // Twenty-four small, harmless oddities, picked at random so no two games feel
     // the same. Every one either undoes itself after a few seconds or is purely
     // cosmetic: none of them change the cards' positions, the score, or the
     // real time.
@@ -1030,26 +1068,32 @@
         note: "Two cards swapped costumes for a second. They were rehearsing." },
       { name: "Tilted room", icon: "📐", run: tiltedRoom,
         note: "The whole board leaned over to peek at the snack table." },
+      { name: "Echo", icon: "📢", run: echo,
+        note: "The cards were testing the party microphone. Check, check… check." },
+      { name: "Sleepy card", icon: "💤", run: sleepyCard,
+        note: "One card stayed up way too late wrapping presents." },
+      { name: "Mirror text", icon: "🪞", run: mirrorText,
+        note: "The intro was practicing reading the party banner from behind." },
+      { name: "Clock blank", icon: "⏱️", run: clockBlank,
+        note: "The clock covered its face so it wouldn't spoil when the party starts." },
+      { name: "Fog", icon: "🌫️", run: fog,
+        note: "Someone tested the party fog machine a little early." },
+      { name: "Peek", icon: "🫣", run: peek,
+        note: "A card couldn't resist peeking to see if you were almost done." },
+      { name: "Nervous button", icon: "🔘", run: nervousButton,
+        note: "The New Game button REALLY didn't want you leaving before the party." },
+      { name: "Countdown", icon: "⏳", run: countdown,
+        note: "The cards started the surprise countdown way too early. Awkward." },
     ];
 
-    // Choose the opening anomalies and the move at which each happens.
+    // Start of each game: nothing seen yet, and the first anomaly is 3–4 moves away.
     function planAnomalies() {
-      const count = randomInt(MIN_ANOMALIES, MAX_ANOMALIES);
-      const chosen = shuffle(ANOMALIES).slice(0, count);
-
-      const possibleMoves = [];
-      for (let move = FIRST_ANOMALY_MOVE; move <= LAST_ANOMALY_MOVE; move++) {
-        possibleMoves.push(move);
-      }
-      const triggerMoves = shuffle(possibleMoves).slice(0, count).sort((a, b) => a - b);
-
-      plannedAnomalies = chosen.map((anomaly, i) => ({ anomaly, atMove: triggerMoves[i] }));
-      usedAnomalies = new Set(chosen.map((anomaly) => anomaly.name));
-      nextLateMove = LAST_ANOMALY_MOVE + randomInt(LATE_GAP_MIN, LATE_GAP_MAX);
+      usedAnomalies = new Set();
+      nextAnomalyMove = randomInt(ANOMALY_GAP_MIN, ANOMALY_GAP_MAX);
     }
 
-    // For the late phase: an anomaly not seen yet this game. Once all 16 have
-    // appeared, start over, so repeats only happen in very long games.
+    // An anomaly not seen yet this game. Once all of them have appeared,
+    // start over, so repeats only happen in very long games.
     function pickFreshAnomaly() {
       let candidates = ANOMALIES.filter((anomaly) => !usedAnomalies.has(anomaly.name));
       if (candidates.length === 0) {
@@ -1061,21 +1105,13 @@
       return anomaly;
     }
 
-    // After each move, run whatever is due, after a short random pause, so
-    // it doesn't feel directly tied to the click.
+    // After each move: if an anomaly is due, run it after a short random
+    // pause (so it doesn't feel tied to the click), and schedule the next one.
     function triggerAnomaliesForThisMove() {
-      // Phase 1: the opening plan.
-      for (const plan of plannedAnomalies) {
-        if (plan.atMove === moves) {
-          later(() => runAnomaly(plan.anomaly), randomInt(400, 1500));
-        }
-      }
-      // Phase 2: after move 12, one every 3 to 4 moves.
-      if (moves === nextLateMove) {
-        const anomaly = pickFreshAnomaly();
-        later(() => runAnomaly(anomaly), randomInt(400, 1500));
-        nextLateMove = moves + randomInt(LATE_GAP_MIN, LATE_GAP_MAX);
-      }
+      if (moves !== nextAnomalyMove) return;
+      const anomaly = pickFreshAnomaly();
+      later(() => runAnomaly(anomaly), randomInt(400, 1500));
+      nextAnomalyMove = moves + randomInt(ANOMALY_GAP_MIN, ANOMALY_GAP_MAX);
     }
 
     // Run an anomaly and add it to the collection. An anomaly returns false
@@ -1103,12 +1139,16 @@
       titleHeading.classList.remove("glitch");
       dimmer.classList.remove("on");
       board.classList.remove("breathing", "color-drift", "tilted");
+      fogLayer.classList.remove("on");
+      introText.classList.remove("mirrored");
+      newGameButton.classList.remove("nervous");
       updateSoundButton();
       backwardTicks = 0;
+      isClockBlank = false;
       displayedSeconds = secondsElapsed;
       // Put every card's back and picture right again (eyes, "¿", wrong pictures).
       [...board.children].forEach((card, index) => {
-        card.classList.remove("knocking");
+        card.classList.remove("knocking", "peeking");
         card.querySelector(".card-back").textContent = "?";
         card.querySelector(".card-symbol").textContent = deck[index].symbol;
       });
@@ -1268,6 +1308,70 @@
       later(() => board.classList.remove("tilted"), 3500);
     }
 
+    // 17. The message line echoes.
+    function echo() {
+      const text = randomItem(ECHOES);
+      showMessage(text);
+      later(() => {
+        if (messageDisplay.textContent === text) showMessage("");
+      }, 3000);
+    }
+
+    // 18. A card's "?" dozes off for a moment.
+    function sleepyCard() {
+      const card = randomItem(faceDownCards());
+      if (!card) return false;  // no face-down card to use
+      const back = card.querySelector(".card-back");
+      back.textContent = "💤";
+      later(() => { back.textContent = "?"; }, 2500);
+    }
+
+    // 19. The intro sentence flips into mirror writing, then back.
+    function mirrorText() {
+      introText.classList.add("mirrored");
+      later(() => introText.classList.remove("mirrored"), 2500);
+    }
+
+    // 20. The timer shows "--:--" for a moment. The real time keeps counting.
+    function clockBlank() {
+      isClockBlank = true;
+      updateTimerDisplay();
+      later(() => {
+        isClockBlank = false;
+        updateTimerDisplay();
+      }, 2500);
+    }
+
+    // 21. A pale fog creeps up from the bottom, then fades.
+    function fog() {
+      fogLayer.classList.add("on");
+      later(() => fogLayer.classList.remove("on"), 3000);
+    }
+
+    // 22. A face-down card lifts slightly, as if peeking, then settles.
+    function peek() {
+      const card = randomItem(faceDownCards());
+      if (!card) return false;  // no face-down card to use
+      card.classList.add("peeking");
+      later(() => card.classList.remove("peeking"), 1200);
+    }
+
+    // 23. The New Game button jitters nervously.
+    function nervousButton() {
+      newGameButton.classList.add("nervous");
+      later(() => newGameButton.classList.remove("nervous"), 1300);
+    }
+
+    // 24. The message line counts down to... nothing.
+    function countdown() {
+      COUNTDOWN.forEach((text, step) => {
+        later(() => showMessage(text), step * 800);
+      });
+      later(() => {
+        if (messageDisplay.textContent === COUNTDOWN.at(-1)) showMessage("");
+      }, COUNTDOWN.length * 800 + 1500);
+    }
+
     // ===== Sound =====
 
     function playSound(name) {
@@ -1319,6 +1423,9 @@
     const themeSelect = document.getElementById("theme");
     const soundButton = document.getElementById("sound-toggle");
     const dimmer = document.getElementById("dimmer");
+    const fogLayer = document.getElementById("fog");
+    const introText = document.getElementById("intro");
+    const newGameButton = document.getElementById("new-game");
     const winDialog = document.getElementById("win-dialog");
     const spaceLayer = document.getElementById("space-layer");
     const oddityGrid = document.getElementById("oddity-grid");
@@ -1391,7 +1498,7 @@
     }
 
     function updateTimerDisplay() {
-      timerDisplay.textContent = formatTime(displayedSeconds);
+      timerDisplay.textContent = isClockBlank ? "--:--" : formatTime(displayedSeconds);
     }
 
     function showMessage(text) {
@@ -1486,6 +1593,10 @@
       renderCollection();
       fillSpaceParty();
       winDialog.showModal();
+      // Start keyboard focus on Play Again (not the first collection tile), but
+      // without scrolling down to it, so the panel opens showing "Surprise!".
+      document.getElementById("play-again").focus({ preventScroll: true });
+      document.querySelector(".win-panel").scrollTop = 0;
     }
 
     function renderScoreTable({ list, rank, saved }) {

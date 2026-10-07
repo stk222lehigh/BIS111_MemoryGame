@@ -21,7 +21,7 @@ This is a **classroom demonstration project**. Its main purpose is to show stude
   3. Win screen + "New Game" restart (reshuffles)
   4. Difficulty levels: Easy 4×3 (6 pairs), Medium 4×4 (8 pairs), Hard 6×4 (12 pairs)
 - **Version 2 (`index_v2.html`):** changes chosen from the student feedback survey. See `PATCH-NOTES.md` for what was and wasn't changed, and why. `index.html` stays as version 1.
-- **Version 3 (`index_v3.html`), a just-for-fun spinoff of v2:** always played on Hard. There are 16 mildly unsettling, harmless oddities. Each game shows 4–5 by move 12, then one every 3–4 moves after that (e.g. a blinking eye on a card, the title glitching, the lights dimming), then the win screen turns into a goofy "surprise party" in space, with a collection of every oddity spotted while the page is open (hover or tap one for a fun note).
+- **Version 3 (`index_v3.html`), a just-for-fun spinoff of v2:** always played on Hard. There are 24 mildly unsettling, harmless oddities, and one happens every 3–4 moves all game long (e.g. a blinking eye on a card, the title glitching, the lights dimming), then the win screen turns into a goofy "surprise party" in space, with a collection of every oddity spotted while the page is open (hover or tap one for a fun note).
 - **Stretch features (only if time allows):** none chosen yet. Candidates: 3D flip animation; best score saved in `localStorage` labeled "You"; Web Audio sound effects; two-player mode ("Player 1" / "Player 2").
 
 ## Hard Constraints (Non-Negotiable)
