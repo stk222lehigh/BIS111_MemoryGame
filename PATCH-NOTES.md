@@ -77,6 +77,7 @@ is kept unchanged as version 1). There were **29 responses**. Each suggestion wa
 
     Even perfect memory needs about 1.6 moves per pair on average, because the first flips are
     blind guesses, so three stars is hard but possible.
+
   - The intro line now says: "Fewer moves earn more stars!"
   - The stars are also written out in words ("2 of 3 stars") for screen readers.
 
