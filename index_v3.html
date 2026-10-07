@@ -73,7 +73,8 @@
 
     /* One focus style for every control, so keyboard users always see where they are. */
     button:focus-visible,
-    select:focus-visible {
+    select:focus-visible,
+    .oddity:focus-visible {
       outline: 4px solid var(--focus);
       outline-offset: 3px;
     }
@@ -462,6 +463,75 @@
       font-size: 1rem;
     }
 
+    /* ===== Oddities collection (on the win screen) ===== */
+    .collection {
+      margin: 0.8rem 0;
+      padding-top: 0.6rem;
+      border-top: 2px dashed var(--card-back);
+    }
+    .collection h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1.15rem;
+    }
+    .oddity-grid {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 0.4rem;
+    }
+    /* On phones, 4 per row keeps each tile big enough to tap. */
+    @media (max-width: 480px) {
+      .oddity-grid {
+        grid-template-columns: repeat(4, 1fr);
+      }
+    }
+    .oddity {
+      position: relative;  /* anchors the "new" badge */
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid var(--card-back);
+      border-radius: 8px;
+      background: var(--card-face);
+      font-size: 1.5rem;
+      cursor: help;
+    }
+    /* Not spotted yet: looks like a face-down card. */
+    .oddity.locked {
+      background: var(--card-back);
+      color: white;
+      font-size: 1.1rem;
+      font-weight: bold;
+      cursor: default;
+    }
+    /* The tile whose note is showing gets a thicker orange border. */
+    .oddity.selected {
+      border: 3px solid var(--accent);
+    }
+    /* Spotted for the first time in this game. The word "new" is the signal,
+       not just the color. */
+    .oddity.is-new::after {
+      content: "new";
+      position: absolute;
+      top: -0.6em;
+      right: -0.4em;
+      padding: 0 0.3em;
+      border-radius: 4px;
+      background: var(--accent);
+      color: #1b1b1b;
+      font-size: 0.6rem;
+      font-weight: bold;
+    }
+    /* min-height keeps the panel from jumping as notes of different lengths appear. */
+    .oddity-note {
+      min-height: 3em;
+      margin: 0.5rem 0 0;
+      font-size: 1rem;
+    }
+
     /* ===== Reduced motion =====
        Respect the "reduce motion" system setting: no flipping, twitching,
        breathing, drifting, or bobbing. The odd behaviors that don't move
@@ -568,7 +638,17 @@
       </div>
       <p id="score-note"></p>
 
-      <button id="play-again" class="action-button" type="button">Play Again</button>
+      <section class="collection" aria-labelledby="collection-title">
+        <h3 id="collection-title">
+          Oddities spotted: <span id="spotted-count">0</span> of <span id="oddity-total"></span>
+        </h3>
+        <!-- One tile per oddity, built by JavaScript. -->
+        <ul id="oddity-grid" class="oddity-grid"></ul>
+        <p id="oddity-note" class="oddity-note"></p>
+      </section>
+
+      <!-- autofocus: the dialog starts on this button, not on the first tile. -->
+      <button id="play-again" class="action-button" type="button" autofocus>Play Again</button>
     </div>
   </dialog>
 
@@ -693,6 +773,10 @@
     let plannedAnomalies = []; // this game's opening anomalies: { anomaly, atMove }
     let usedAnomalies = new Set(); // names already shown this game (avoids repeats)
     let nextLateMove = 0;      // the move for the next anomaly after move 12
+    // For the win-screen collection. Kept only while the page is open (not saved),
+    // so closing or reloading the page starts a fresh collection.
+    let spottedThisSession = new Set();     // names of every anomaly actually seen
+    let spottedBeforeThisGame = new Set();  // snapshot at game start, to mark what's "new"
     let anomalyTimers = [];    // pending anomaly timeouts, cancelled on a new game
     let audioContext = null;   // created on the first sound (see playSound)
     let scheduledNotes = [];   // notes playing or about to play: { start, end, volume }
@@ -796,6 +880,7 @@
       streak = 0;
       secondsElapsed = 0;
       displayedSeconds = 0;
+      spottedBeforeThisGame = new Set(spottedThisSession);
       planAnomalies();
 
       renderBoard();
@@ -910,23 +995,41 @@
     // cosmetic: none of them change the cards' positions, the score, or the
     // real time.
 
+    // Each anomaly also has an icon and a fun note for the collection on the
+    // win screen. The notes "explain" each oddity as party preparations.
     const ANOMALIES = [
-      { name: "Watching eye",    run: watchingEye },
-      { name: "Title glitch",    run: titleGlitch },
-      { name: "Lights dim",      run: lightsDim },
-      { name: "Whisper",         run: whisper },
-      { name: "Move hiccup",     run: moveHiccup },
-      { name: "Time slip",       run: timeSlip },
-      { name: "Breathing cards", run: breathingCards },
-      { name: "Passing shadow",  run: passingShadow },
-      { name: "Look away",       run: lookAway },
-      { name: "Paw prints",      run: pawPrints },
-      { name: "Question flip",   run: questionFlip },
-      { name: "Knocking",        run: knocking },
-      { name: "Color drift",     run: colorDrift },
-      { name: "Listening",       run: listening },
-      { name: "Wrong picture",   run: wrongPicture },
-      { name: "Tilted room",     run: tiltedRoom },
+      { name: "Watching eye", icon: "👁️", run: watchingEye,
+        note: "It wasn't watching you. It was watching the door for the guest of honor." },
+      { name: "Title glitch", icon: "📛", run: titleGlitch,
+        note: "The title tried on a few party name tags before picking one." },
+      { name: "Lights dim", icon: "💡", run: lightsDim,
+        note: "Someone was testing the mood lighting. Probably the octopus." },
+      { name: "Whisper", icon: "💬", run: whisper,
+        note: "Shh! The cards were whispering so you wouldn't hear about the party." },
+      { name: "Move hiccup", icon: "🔢", run: moveHiccup,
+        note: "The move counter sneezed from all the confetti dust. Bless you, counter." },
+      { name: "Time slip", icon: "⏪", run: timeSlip,
+        note: "The cards needed four more seconds to blow up the balloons." },
+      { name: "Breathing cards", icon: "🫁", run: breathingCards,
+        note: "The cards were practicing their big 'SURPRISE!' breath." },
+      { name: "Passing shadow", icon: "👤", run: passingShadow,
+        note: "Just the party planner sneaking past with an armful of streamers." },
+      { name: "Look away", icon: "🙈", run: lookAway,
+        note: "That card was trying very hard not to give away the surprise." },
+      { name: "Paw prints", icon: "🐾", run: pawPrints,
+        note: "A very small guest arrived early and didn't wipe its feet." },
+      { name: "Question flip", icon: "¿", run: questionFlip,
+        note: "The question marks were doing handstands to pass the time." },
+      { name: "Knocking", icon: "🚪", run: knocking,
+        note: "Someone was hanging decorations inside a card. Sorry about the noise!" },
+      { name: "Color drift", icon: "🎨", run: colorDrift,
+        note: "The cards were trying on outfits for the party." },
+      { name: "Listening", icon: "👂", run: listening,
+        note: "The sound button was listening for the cue to start the party music." },
+      { name: "Wrong picture", icon: "🔀", run: wrongPicture,
+        note: "Two cards swapped costumes for a second. They were rehearsing." },
+      { name: "Tilted room", icon: "📐", run: tiltedRoom,
+        note: "The whole board leaned over to peek at the snack table." },
     ];
 
     // Choose the opening anomalies and the move at which each happens.
@@ -964,14 +1067,27 @@
       // Phase 1: the opening plan.
       for (const plan of plannedAnomalies) {
         if (plan.atMove === moves) {
-          later(plan.anomaly.run, randomInt(400, 1500));
+          later(() => runAnomaly(plan.anomaly), randomInt(400, 1500));
         }
       }
       // Phase 2: after move 12, one every 3 to 4 moves.
       if (moves === nextLateMove) {
-        later(pickFreshAnomaly().run, randomInt(400, 1500));
+        const anomaly = pickFreshAnomaly();
+        later(() => runAnomaly(anomaly), randomInt(400, 1500));
         nextLateMove = moves + randomInt(LATE_GAP_MIN, LATE_GAP_MAX);
       }
+    }
+
+    // Run an anomaly and add it to the collection. An anomaly returns false
+    // when it couldn't happen (e.g. no matched card to look away yet), so the
+    // collection only counts what the player could actually have seen.
+    function runAnomaly(anomaly) {
+      if (anomaly.run() === false) return;
+      spottedThisSession.add(anomaly.name);
+    }
+
+    function anomalyNamed(name) {
+      return ANOMALIES.find((anomaly) => anomaly.name === name);
     }
 
     // setTimeout that remembers its id, so a new game can cancel it.
@@ -1011,7 +1127,7 @@
     // 1. One card's "?" becomes an eye, blinks, and goes back to normal.
     function watchingEye() {
       const card = randomItem(faceDownCards());
-      if (!card) return;
+      if (!card) return false;  // no face-down card to use
       const back = card.querySelector(".card-back");
       back.replaceChildren(makeSpan("eye", "👁️"));
       later(() => { back.textContent = "?"; }, 1800);
@@ -1077,8 +1193,8 @@
     function lookAway() {
       const matchedIndexes = [...matched];
       if (matchedIndexes.length === 0) {
-        watchingEye();
-        return;
+        runAnomaly(anomalyNamed("Watching eye"));
+        return false;  // the eye happened instead, and is counted on its own
       }
       const card = board.children[randomItem(matchedIndexes)];
       card.querySelector(".card-symbol").classList.add("looking-away");
@@ -1105,6 +1221,7 @@
     // 11. A few "?" turn upside down, then flip back.
     function questionFlip() {
       const backs = shuffle(faceDownCards()).slice(0, 3).map((card) => card.querySelector(".card-back"));
+      if (backs.length === 0) return false;
       backs.forEach((back) => { back.textContent = "¿"; });
       later(() => backs.forEach((back) => { back.textContent = "?"; }), 2500);
     }
@@ -1112,7 +1229,7 @@
     // 12. A face-down card shakes, as if knocked from inside.
     function knocking() {
       const card = randomItem(faceDownCards());
-      if (!card) return;
+      if (!card) return false;  // no face-down card to use
       card.classList.add("knocking");
       playSound("knock");
       later(() => card.classList.remove("knocking"), 1100);
@@ -1135,8 +1252,8 @@
     function wrongPicture() {
       const matchedIndexes = [...matched];
       if (matchedIndexes.length === 0) {
-        questionFlip();
-        return;
+        runAnomaly(anomalyNamed("Question flip"));
+        return false;  // the question flip happened instead, and is counted on its own
       }
       const index = randomItem(matchedIndexes);
       const symbol = board.children[index].querySelector(".card-symbol");
@@ -1204,6 +1321,8 @@
     const dimmer = document.getElementById("dimmer");
     const winDialog = document.getElementById("win-dialog");
     const spaceLayer = document.getElementById("space-layer");
+    const oddityGrid = document.getElementById("oddity-grid");
+    const oddityNote = document.getElementById("oddity-note");
 
     function makeSpan(className, text) {
       const span = document.createElement("span");
@@ -1307,6 +1426,51 @@
       spaceLayer.replaceChildren(...floaters);
     }
 
+    const COLLECTION_HINT = "Hover over (or tap) a spotted oddity to find out what it really was.";
+    const COLLECTION_COMPLETE = "🏆 You spotted every oddity! The party planners are very impressed.";
+
+    // One tile per oddity: its icon if spotted this session, or "?" if not yet.
+    function renderCollection() {
+      document.getElementById("spotted-count").textContent = spottedThisSession.size;
+      document.getElementById("oddity-total").textContent = ANOMALIES.length;
+
+      const tiles = ANOMALIES.map((anomaly, index) => {
+        const tile = document.createElement("li");
+        tile.className = "oddity";
+        tile.tabIndex = 0;  // lets keyboard users (and a tap on phones) select it
+        tile.dataset.index = index;
+
+        if (spottedThisSession.has(anomaly.name)) {
+          const isNew = !spottedBeforeThisGame.has(anomaly.name);
+          tile.textContent = anomaly.icon;
+          tile.classList.toggle("is-new", isNew);
+          // Screen readers get the name and the note straight away.
+          tile.setAttribute("aria-label",
+            `${anomaly.name}${isNew ? " (new)" : ""}: ${anomaly.note}`);
+        } else {
+          tile.textContent = "?";
+          tile.classList.add("locked");
+          tile.setAttribute("aria-label", "Not spotted yet");
+        }
+        return tile;
+      });
+      oddityGrid.replaceChildren(...tiles);
+
+      oddityNote.textContent = spottedThisSession.size === ANOMALIES.length
+        ? COLLECTION_COMPLETE
+        : COLLECTION_HINT;
+    }
+
+    // Show the note for whichever tile the mouse, keyboard, or finger is on.
+    function showOddityNote(tile) {
+      oddityGrid.querySelectorAll(".selected").forEach((t) => t.classList.remove("selected"));
+      tile.classList.add("selected");
+      const anomaly = ANOMALIES[Number(tile.dataset.index)];
+      oddityNote.textContent = tile.classList.contains("locked")
+        ? "❓ Not spotted yet. Keep playing to find it!"
+        : `${anomaly.icon} ${anomaly.name}: ${anomaly.note}`;
+    }
+
     function showWinDialog(entry, result) {
       const pairCount = deck.length / 2;
       const stars = starsFor(entry.moves, pairCount);
@@ -1319,6 +1483,7 @@
         `(${formatTime(entry.seconds)}) and scored ${entry.points} points.`;
 
       renderScoreTable(result);
+      renderCollection();
       fillSpaceParty();
       winDialog.showModal();
     }
@@ -1394,6 +1559,11 @@
       updateSoundButton();
     }
 
+    function handleOddityPointer(event) {
+      const tile = event.target.closest(".oddity");
+      if (tile) showOddityNote(tile);
+    }
+
     function handlePlayAgain() {
       winDialog.close();
       startNewGame();
@@ -1404,6 +1574,10 @@
     soundButton.addEventListener("click", handleSoundToggle);
     document.getElementById("new-game").addEventListener("click", startNewGame);
     document.getElementById("play-again").addEventListener("click", handlePlayAgain);
+    // Hover (mouse), focusin (keyboard), and click (tap on a phone, which can't hover).
+    oddityGrid.addEventListener("mouseover", handleOddityPointer);
+    oddityGrid.addEventListener("focusin", handleOddityPointer);
+    oddityGrid.addEventListener("click", handleOddityPointer);
     // Closing the party with Esc should also start fresh, like Play Again.
     winDialog.addEventListener("cancel", startNewGame);
 
