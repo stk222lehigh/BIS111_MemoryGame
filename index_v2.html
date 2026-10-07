@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Memory Match</title>
+  <style>
+    /* ===== Theme colors =====
+       Kept as variables so a dark theme only has to swap the values. */
+    :root {
+      --bg: #f4f1ea;
+      --text: #1b1b1b;
+      --card-back: #2b4c7e;
+      --card-face: #ffffff;
+      --accent: #e07a1f;
+      --focus: #ffbf00;
+      --matched: #d8f0d2;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #16181d;
+        --text: #f2f2f2;
+        --card-back: #3d6bb3;
+        --card-face: #2a2d35;
+        --accent: #ffa64d;
+        --matched: #24452a;
+      }
+    }
+
+    /* ===== Base layout =====
+       The page is exactly one screen tall: title and controls on top, and the
+       board gets whatever height is left, so the whole grid fits without scrolling. */
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      font-size: 20px;  /* large default so it's readable from the back of the room */
+      line-height: 1.4;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;   /* fallback for older browsers */
+      height: 100dvh;  /* "dynamic" height ignores phone browser toolbars */
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 12px 16px;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(1.6rem, 5vw, 2.2rem);
+      line-height: 1.2;
+      text-align: center;
+    }
+    .intro {
+      margin: 0.2em 0 0.5em;
+      text-align: center;
+    }
+
+    /* One focus style for every control, so keyboard users always see where they are. */
+    button:focus-visible,
+    select:focus-visible {
+      outline: 4px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    /* ===== Controls row ===== */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      font-weight: bold;
+    }
+    #difficulty {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .level-button {
+      font: inherit;
+      padding: 0.2em 0.9em;
+      border: 3px solid var(--card-back);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    /* The chosen level is filled in AND gets a ✓, so the signal isn't color alone.
+       Styling by [aria-pressed] means the look comes from the accessibility state. */
+    .level-button[aria-pressed="true"] {
+      background: var(--card-back);
+      color: white;
+    }
+    .level-button[aria-pressed="true"]::before {
+      content: "✓ ";
+    }
+    select {
+      font: inherit;
+      padding: 0.2em 0.4em;
+      border: 3px solid var(--card-back);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .action-button,
+    .sound-button {
+      font: inherit;
+      padding: 0.25em 1em;
+      border: 3px solid var(--text);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .action-button {
+      background: var(--accent);
+      color: #1b1b1b;  /* dark text stays readable on orange in both themes */
+    }
+    .sound-button {
+      background: transparent;
+      color: var(--text);
+    }
+
+    /* ===== Stats bar ===== */
+    #stats {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: baseline;
+      gap: 0.2rem 1.5rem;
+      margin-top: 0.5rem;
+      font-variant-numeric: tabular-nums;  /* digits don't wiggle as they change */
+    }
+    .stat {
+      font-size: 1.1rem;
+    }
+    /* Moves are the goal of the game, so they're the biggest number on screen. */
+    .stat-main {
+      font-size: 1.7rem;
+      font-weight: bold;
+    }
+    /* min-height reserves the line even when empty, so the board doesn't jump. */
+    #message {
+      min-height: 1.4em;
+      margin: 0.2rem 0 0.4rem;
+      text-align: center;
+      font-weight: bold;
+    }
+
+    /* ===== Game board =====
+       .board-area fills the leftover height. "container-type: size" lets the
+       board measure that space with cqw/cqh units (like vw/vh, but for this box). */
+    .board-area {
+      flex: 1;
+      min-height: 200px;  /* on very short screens, scroll rather than shrink to nothing */
+      container-type: size;
+    }
+    #board {
+      --gap: 10px;
+      /* Each card is as wide as possible while ALL rows and columns still fit:
+         the smaller of "width ÷ columns" and "height ÷ rows" (converted to a width
+         using the card's 3:4 shape), capped so cards stay sensible on huge screens.
+         --columns and --rows are set by JavaScript for each difficulty. */
+      --card-width: min(
+        (100cqw - (var(--columns) - 1) * var(--gap)) / var(--columns),
+        (100cqh - (var(--rows) - 1) * var(--gap)) / var(--rows) * 3 / 4,
+        180px
+      );
+      display: grid;
+      grid-template-columns: repeat(var(--columns), var(--card-width));
+      justify-content: center;
+      gap: var(--gap);
+    }
+
+    /* ===== Cards =====
+       Each card is a <button> holding a two-sided "inner" piece.
+       Flipping = rotating the inner piece 180° around its vertical axis. */
+    .card {
+      aspect-ratio: 3 / 4;
+      padding: 0;
+      border: none;
+      border-radius: 10px;
+      background: none;
+      color: inherit;
+      cursor: pointer;
+      perspective: 800px;          /* gives the flip its 3D depth */
+      container-type: inline-size; /* lets text inside scale with the card (cqi units) */
+    }
+    .card-inner {
+      display: block;
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+      transition: transform 0.35s ease;
+    }
+    .card.face-up .card-inner {
+      transform: rotateY(180deg);
+    }
+    .card-face {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3cqi;
+      border: 3px solid transparent;
+      border-radius: 10px;
+      /* Hide whichever side is turned away from the viewer. */
+      -webkit-backface-visibility: hidden;  /* Safari still needs the prefix */
+      backface-visibility: hidden;
+    }
+    .card-back {
+      background: var(--card-back);
+      color: white;
+      font-size: 40cqi;
+      font-weight: bold;
+    }
+    .card-front {
+      transform: rotateY(180deg);  /* starts turned away; the flip brings it round */
+      background: var(--card-face);
+      border-color: var(--card-back);
+    }
+    .card-symbol {
+      font-size: 50cqi;
+      font-weight: bold;  /* only affects the Numbers theme */
+      line-height: 1;
+    }
+    .card-label {
+      font-size: 15cqi;
+      font-weight: bold;
+    }
+    /* Labels would be unreadably small on tiny cards (Hard mode on a phone). */
+    @container (max-width: 80px) {
+      .card-label {
+        display: none;
+      }
+    }
+    /* Matched cards get a different color AND a ✓ mark,
+       because color alone can't be the only signal. */
+    .card.matched .card-front {
+      background: var(--matched);
+      border-color: transparent;
+    }
+    .card.matched .card-front::after {
+      content: "✓";
+      position: absolute;
+      top: 3cqi;
+      right: 6cqi;
+      font-size: 16cqi;
+    }
+    .card.matched {
+      cursor: default;
+    }
+    /* Respect the "reduce motion" system setting: flip instantly instead. */
+    @media (prefers-reduced-motion: reduce) {
+      .card-inner {
+        transition: none;
+      }
+    }
+
+    /* ===== Win dialog ===== */
+    #win-dialog {
+      border: 4px solid var(--accent);
+      border-radius: 16px;
+      /* Narrower side padding on phones leaves room for the score table. */
+      padding: 1.25rem clamp(0.75rem, 4vw, 1.5rem);
+      background: var(--bg);
+      color: var(--text);
+      text-align: center;
+      width: min(92vw, 480px);
+      max-height: 92dvh;
+      overflow-y: auto;
+    }
+    #win-dialog h2 {
+      margin: 0;
+      font-size: 2rem;
+    }
+    /* ::backdrop is the dimmed layer the browser draws behind a modal dialog. */
+    #win-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.5);
+    }
+    .stars {
+      margin: 0.3rem 0;
+    }
+    #star-icons {
+      font-size: 2.4rem;
+      color: var(--accent);
+      letter-spacing: 0.1em;
+    }
+    #score-table {
+      width: 100%;
+      margin: 0.5rem 0;
+      border-collapse: collapse;
+      font-size: 1rem;
+      font-variant-numeric: tabular-nums;
+    }
+    #score-table caption {
+      font-weight: bold;
+      margin-bottom: 0.3rem;
+    }
+    /* If the table is still too wide for a tiny screen, it scrolls on its own
+       instead of being cut off. */
+    .score-scroll {
+      overflow-x: auto;
+    }
+    #score-table th,
+    #score-table td {
+      padding: 0.25em 0.2em;
+      border-bottom: 1px solid var(--card-back);
+    }
+    /* The score you just set is bold, highlighted, AND labeled "new". */
+    #score-table tr.new-score {
+      background: var(--matched);
+      font-weight: bold;
+    }
+    #score-note {
+      font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Memory Match</h1>
+      <p class="intro">
+        Flip two cards at a time to find matching pairs. Fewer moves earn more stars!
+      </p>
+    </header>
+
+    <div class="controls">
+      <!-- Toggle buttons: aria-pressed tells screen readers which one is selected. -->
+      <div id="difficulty" role="group" aria-labelledby="difficulty-label">
+        <span id="difficulty-label">Difficulty:</span>
+        <button class="level-button" type="button" data-level="easy">Easy</button>
+        <button class="level-button" type="button" data-level="medium">Medium</button>
+        <button class="level-button" type="button" data-level="hard">Hard</button>
+      </div>
+
+      <label>
+        Theme:
+        <!-- The values must match the keys in THEMES in the script. -->
+        <select id="theme">
+          <option value="animals">Animals</option>
+          <option value="fruit">Fruit</option>
+          <option value="numbers">Numbers</option>
+        </select>
+      </label>
+
+      <button id="new-game" class="action-button" type="button">New Game</button>
+      <button id="sound-toggle" class="sound-button" type="button"></button>
+    </div>
+
+    <div id="stats">
+      <span class="stat stat-main">Moves: <span id="moves">0</span></span>
+      <span class="stat">Points: <span id="points">0</span></span>
+      <span class="stat">Time: <span id="timer">0:00</span></span>
+    </div>
+    <!-- aria-live makes screen readers announce each new message ("Match!") -->
+    <p id="message" aria-live="polite"></p>
+
+    <div class="board-area">
+      <!-- The cards are created by JavaScript, so a new game is a fresh shuffle. -->
+      <section id="board" aria-label="Game board"></section>
+    </div>
+  </main>
+
+  <!-- <dialog> is built into HTML: showModal() dims the page, keeps keyboard
+       focus inside the box, and lets Esc close it, with no extra code from us. -->
+  <dialog id="win-dialog" aria-labelledby="win-title">
+    <h2 id="win-title">🎉 You won!</h2>
+    <p class="stars">
+      <!-- The star symbols are decoration; the text next to them says the same thing. -->
+      <span id="star-icons" aria-hidden="true"></span>
+      <span id="star-text"></span>
+    </p>
+    <p id="win-summary"></p>
+
+    <div class="score-scroll">
+    <table id="score-table">
+      <caption id="score-caption"></caption>
+      <thead>
+        <tr>
+          <th scope="col">#</th>
+          <th scope="col">Moves</th>
+          <th scope="col">Time</th>
+          <th scope="col">Points</th>
+          <th scope="col">Theme</th>
+        </tr>
+      </thead>
+      <tbody id="score-rows"></tbody>
+    </table>
+    </div>
+    <p id="score-note"></p>
+
+    <button id="play-again" class="action-button" type="button">Play Again</button>
+  </dialog>
+
+  <script>
+    // ===== Settings =====
+
+    // Each theme has 12 cards, enough for the largest grid (6×4 = 12 pairs).
+    // Pictures were chosen to look clearly different from each other, and every
+    // card has a name, used for the label and for screen readers.
+    const THEMES = {
+      animals: {
+        label: "Animals",
+        showLabels: true,
+        cards: [
+          { symbol: "🐘", name: "Elephant" },  { symbol: "🦒", name: "Giraffe" },
+          { symbol: "🐢", name: "Turtle" },    { symbol: "🐙", name: "Octopus" },
+          { symbol: "🦋", name: "Butterfly" }, { symbol: "🐝", name: "Bee" },
+          { symbol: "🦀", name: "Crab" },      { symbol: "🐌", name: "Snail" },
+          { symbol: "🦉", name: "Owl" },       { symbol: "🐧", name: "Penguin" },
+          { symbol: "🐳", name: "Whale" },     { symbol: "🦩", name: "Flamingo" },
+        ],
+      },
+      fruit: {
+        label: "Fruit",
+        showLabels: true,
+        cards: [
+          { symbol: "🍎", name: "Apple" },     { symbol: "🍌", name: "Banana" },
+          { symbol: "🍇", name: "Grapes" },    { symbol: "🍉", name: "Watermelon" },
+          { symbol: "🍓", name: "Strawberry" },{ symbol: "🍍", name: "Pineapple" },
+          { symbol: "🥝", name: "Kiwi" },      { symbol: "🍒", name: "Cherries" },
+          { symbol: "🥥", name: "Coconut" },   { symbol: "🍋", name: "Lemon" },
+          { symbol: "🥑", name: "Avocado" },   { symbol: "🍑", name: "Peach" },
+        ],
+      },
+      // Plain numbers are harder to remember than pictures (a student suggestion).
+      // A label like "Seven" under a 7 would add nothing, so labels are off here.
+      numbers: {
+        label: "Numbers",
+        showLabels: false,
+        cards: ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
+                "Nine", "Ten", "Eleven", "Twelve"]
+          .map((name, i) => ({ symbol: String(i + 1), name })),
+      },
+    };
+
+    // Each level is just two numbers. Rows follow from pairs ÷ columns.
+    const DIFFICULTIES = {
+      easy:   { label: "Easy",   pairs: 6,  columns: 4 },  // 4×3
+      medium: { label: "Medium", pairs: 8,  columns: 4 },  // 4×4
+      hard:   { label: "Hard",   pairs: 12, columns: 6 },  // 6×4
+    };
+
+    const MISMATCH_DELAY_MS = 700;    // how long a wrong pair stays up (clicking skips it)
+    const WIN_DIALOG_DELAY_MS = 500;  // lets the last card finish flipping first
+    const POINTS_PER_MATCH = 10;      // multiplied by the streak: 10, 20, 30, ...
+
+    // Stars are based on moves per pair. Even with perfect memory you need about
+    // 1.6 moves per pair on average, because the first flips are blind guesses.
+    const THREE_STAR_MOVES_PER_PAIR = 1.75;
+    const TWO_STAR_MOVES_PER_PAIR = 2.5;
+
+    const MAX_SAVED_SCORES = 5;
+    const SCORES_KEY = "memoryMatch.bestScores";
+    const MUTE_KEY = "memoryMatch.muted";
+
+    // Each sound is a list of notes: [frequency in Hz, start time in s, length in s].
+    // Making the sounds in code means the game needs no audio files.
+    const SOUNDS = {
+      flip:  [[600, 0, 0.05]],
+      match: [[660, 0, 0.1], [880, 0.1, 0.15]],
+      miss:  [[220, 0, 0.2]],
+      win:   [[523, 0, 0.15], [659, 0.15, 0.15], [784, 0.3, 0.35]],
+    };
+
+    // ===== State =====
+    let currentLevel = "medium";
+    let currentTheme = "animals";
+    let deck = [];             // the shuffled list of cards: { symbol, name }
+    let revealed = [];         // indexes of the (up to 2) cards currently turned up
+    let matched = new Set();   // indexes of cards that have found their pair
+    let isChecking = false;    // true while a wrong pair is waiting to flip back
+    let moves = 0;             // one move = one pair of cards flipped
+    let points = 0;
+    let streak = 0;            // matches in a row; a wrong pair resets it to 0
+    let secondsElapsed = 0;
+    let timerId = null;        // null means the clock isn't running
+    let flipBackId = null;     // the pending "flip the wrong pair back" timeout
+    let winDialogId = null;    // the pending "show the win dialog" timeout
+    let audioContext = null;   // created on the first sound (see playSound)
+    let isMuted = loadMuted();
+
+    // ===== Saved Data (localStorage) =====
+    // Only non-personal data is saved: scores with no names, and the mute setting.
+    // Every access is wrapped in try/catch because storage can be switched off
+    // (e.g. private browsing). The game must still work without it.
+
+    function loadBestScores() {
+      try {
+        const data = JSON.parse(localStorage.getItem(SCORES_KEY));
+        return data && typeof data === "object" ? data : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveBestScores(scores) {
+      try {
+        localStorage.setItem(SCORES_KEY, JSON.stringify(scores));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    // Add a finished game to this level's top list.
+    // Returns the list, where the new score landed (-1 = didn't make it), and
+    // whether saving worked.
+    function addBestScore(level, entry) {
+      const scores = loadBestScores();
+      const previous = Array.isArray(scores[level]) ? scores[level] : [];
+      const list = [...previous, entry]
+        // Fewest moves ranks first; time only breaks ties (moves are the goal).
+        .sort((a, b) => a.moves - b.moves || a.seconds - b.seconds)
+        .slice(0, MAX_SAVED_SCORES);
+      scores[level] = list;
+      const saved = saveBestScores(scores);
+      return { list, rank: list.indexOf(entry), saved };
+    }
+
+    function loadMuted() {
+      try {
+        return localStorage.getItem(MUTE_KEY) === "true";
+      } catch {
+        return false;
+      }
+    }
+
+    function saveMuted() {
+      try {
+        localStorage.setItem(MUTE_KEY, String(isMuted));
+      } catch {
+        // Not saved; the setting still works until the page is closed.
+      }
+    }
+
+    // ===== Game Logic =====
+
+    // Fisher–Yates shuffle: every ordering is equally likely.
+    // (The popular "sort with Math.random()" trick is biased, so we avoid it.)
+    function shuffle(items) {
+      const result = [...items];
+      for (let i = result.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+      }
+      return result;
+    }
+
+    // Pick cards from the theme, put each one in twice, then shuffle.
+    function buildDeck(themeKey, pairCount) {
+      const chosen = shuffle(THEMES[themeKey].cards).slice(0, pairCount);
+      return shuffle([...chosen, ...chosen]);
+    }
+
+    // Reset all the state, deal a fresh deck, and redraw everything.
+    function startNewGame() {
+      stopTimer();
+      // Cancel anything still waiting from the old game. Otherwise it could
+      // fire a moment later and act on the NEW game.
+      clearTimeout(flipBackId);
+      clearTimeout(winDialogId);
+
+      deck = buildDeck(currentTheme, DIFFICULTIES[currentLevel].pairs);
+      revealed = [];
+      matched = new Set();
+      isChecking = false;
+      moves = 0;
+      points = 0;
+      streak = 0;
+      secondsElapsed = 0;
+
+      renderBoard();
+      updateStats();
+      updateLevelButtons();
+      showMessage("Flip any card to start.");
+    }
+
+    // Called once two cards are face up.
+    function checkForMatch() {
+      const [first, second] = revealed;
+      moves++;
+
+      // Compare names, not pictures: the name is the card's identity.
+      if (deck[first].name === deck[second].name) {
+        matched.add(first);
+        matched.add(second);
+        revealed = [];
+        streak++;
+        const earned = POINTS_PER_MATCH * streak;
+        points += earned;
+        updateCard(first);
+        updateCard(second);
+        showMessage(streak > 1
+          ? `Match! +${earned} points (${streak} in a row 🔥)`
+          : `Match! +${earned} points`);
+
+        if (matched.size === deck.length) {
+          finishGame();
+        } else {
+          playSound("match");
+        }
+      } else {
+        streak = 0;
+        isChecking = true;
+        showMessage("Not a match.");
+        playSound("miss");
+        // Leave the wrong pair up briefly so the player can memorize it.
+        flipBackId = setTimeout(flipBackNow, MISMATCH_DELAY_MS);
+      }
+      updateStats();
+    }
+
+    // Turn a wrong pair face down: either when the delay ends, or straight
+    // away if the player clicks another card first.
+    function flipBackNow() {
+      clearTimeout(flipBackId);
+      const [first, second] = revealed;
+      revealed = [];
+      isChecking = false;
+      updateCard(first);
+      updateCard(second);
+      showMessage("");
+    }
+
+    function finishGame() {
+      stopTimer();
+      playSound("win");
+      const entry = { moves, seconds: secondsElapsed, points, theme: currentTheme };
+      const result = addBestScore(currentLevel, entry);
+      showMessage(`All ${deck.length / 2} pairs found!`);
+      winDialogId = setTimeout(() => showWinDialog(entry, result), WIN_DIALOG_DELAY_MS);
+    }
+
+    // 1 to 3 stars, based on how many moves each pair took on average.
+    function starsFor(moveCount, pairCount) {
+      const movesPerPair = moveCount / pairCount;
+      if (movesPerPair <= THREE_STAR_MOVES_PER_PAIR) return 3;
+      if (movesPerPair <= TWO_STAR_MOVES_PER_PAIR) return 2;
+      return 1;
+    }
+
+    // ===== Timer =====
+
+    // The clock starts on the first flip, not on page load,
+    // so reading the instructions doesn't cost the player time.
+    function startTimer() {
+      if (timerId !== null) return;  // already running
+      timerId = setInterval(() => {
+        secondsElapsed++;
+        updateStats();
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerId);
+      timerId = null;
+    }
+
+    // 75 seconds -> "1:15"
+    function formatTime(totalSeconds) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = String(totalSeconds % 60).padStart(2, "0");
+      return `${minutes}:${seconds}`;
+    }
+
+    // ===== Sound =====
+
+    function playSound(name) {
+      if (isMuted) return;
+      try {
+        // Browsers only allow sound after the user has clicked something, so the
+        // audio system is created on first use, which is always after a click.
+        audioContext ??= new AudioContext();
+        for (const [frequency, start, length] of SOUNDS[name]) {
+          playNote(frequency, start, length);
+        }
+      } catch {
+        // No Web Audio in this browser: the game simply stays silent.
+      }
+    }
+
+    // One beep: a sine-wave tone that fades out.
+    function playNote(frequency, start, length) {
+      const startTime = audioContext.currentTime + start;
+      const oscillator = audioContext.createOscillator();
+      const volume = audioContext.createGain();
+      oscillator.frequency.value = frequency;
+      // Fading out (instead of stopping dead) avoids an ugly click at the end.
+      volume.gain.setValueAtTime(0.2, startTime);
+      volume.gain.exponentialRampToValueAtTime(0.001, startTime + length);
+      oscillator.connect(volume).connect(audioContext.destination);
+      oscillator.start(startTime);
+      oscillator.stop(startTime + length);
+    }
+
+    // ===== Rendering =====
+    const board = document.getElementById("board");
+    const movesDisplay = document.getElementById("moves");
+    const pointsDisplay = document.getElementById("points");
+    const timerDisplay = document.getElementById("timer");
+    const messageDisplay = document.getElementById("message");
+    const levelButtons = document.querySelectorAll(".level-button");
+    const themeSelect = document.getElementById("theme");
+    const soundButton = document.getElementById("sound-toggle");
+    const winDialog = document.getElementById("win-dialog");
+
+    function makeSpan(className, text) {
+      const span = document.createElement("span");
+      span.className = className;
+      span.textContent = text;
+      return span;
+    }
+
+    // Build one two-sided card. The front is always in the page (the flip
+    // animation needs both sides), but it's turned away until flipped, and the
+    // button's aria-label keeps screen readers from announcing it early.
+    function createCard(cardData, index, showLabels) {
+      const card = document.createElement("button");
+      card.className = "card";
+      card.type = "button";
+      card.dataset.index = index;  // lets the click handler know which card it is
+
+      const front = makeSpan("card-face card-front", "");
+      front.appendChild(makeSpan("card-symbol", cardData.symbol));
+      if (showLabels) {
+        front.appendChild(makeSpan("card-label", cardData.name));
+      }
+
+      const inner = makeSpan("card-inner", "");
+      inner.append(makeSpan("card-face card-back", "?"), front);
+      card.appendChild(inner);
+      return card;
+    }
+
+    // Make one card's appearance match the current state.
+    // Every change goes through here, so the screen never disagrees with the data.
+    function updateCard(index) {
+      const card = board.children[index];
+      const isMatched = matched.has(index);
+      const isFaceUp = isMatched || revealed.includes(index);
+
+      card.classList.toggle("face-up", isFaceUp);
+      card.classList.toggle("matched", isMatched);
+      // aria-disabled (not disabled) keeps keyboard focus from jumping away.
+      card.setAttribute("aria-disabled", isMatched);
+
+      const status = isMatched ? "matched" : isFaceUp ? "face up" : "face down";
+      // Only reveal the card's name to screen readers when it's visible on screen.
+      const label = isFaceUp ? `Card ${index + 1}, ${deck[index].name}, ${status}`
+                             : `Card ${index + 1}, ${status}`;
+      card.setAttribute("aria-label", label);
+    }
+
+    function renderBoard() {
+      const { pairs, columns } = DIFFICULTIES[currentLevel];
+      // The CSS uses these two numbers to size the cards so the whole grid fits.
+      board.style.setProperty("--columns", columns);
+      board.style.setProperty("--rows", (pairs * 2) / columns);
+      board.replaceChildren();  // clear any cards from a previous game
+
+      const showLabels = THEMES[currentTheme].showLabels;
+      deck.forEach((cardData, index) => {
+        board.appendChild(createCard(cardData, index, showLabels));
+        updateCard(index);
+      });
+    }
+
+    function updateStats() {
+      movesDisplay.textContent = moves;
+      pointsDisplay.textContent = points;
+      timerDisplay.textContent = formatTime(secondsElapsed);
+    }
+
+    function showMessage(text) {
+      messageDisplay.textContent = text;
+    }
+
+    // Mark exactly one level button as pressed. CSS handles the look.
+    function updateLevelButtons() {
+      levelButtons.forEach((button) => {
+        button.setAttribute("aria-pressed", button.dataset.level === currentLevel);
+      });
+    }
+
+    // The button's text says the current state, so it reads clearly aloud too.
+    function updateSoundButton() {
+      soundButton.textContent = isMuted ? "🔇 Sound off" : "🔊 Sound on";
+    }
+
+    function showWinDialog(entry, result) {
+      const pairCount = deck.length / 2;
+      const stars = starsFor(entry.moves, pairCount);
+      document.getElementById("star-icons").textContent =
+        "★".repeat(stars) + "☆".repeat(3 - stars);
+      document.getElementById("star-text").textContent = `${stars} of 3 stars`;
+
+      document.getElementById("win-summary").textContent =
+        `You found all ${pairCount} pairs in ${entry.moves} moves ` +
+        `(${formatTime(entry.seconds)}) and scored ${entry.points} points.`;
+
+      renderScoreTable(result);
+      winDialog.showModal();
+    }
+
+    function renderScoreTable({ list, rank, saved }) {
+      document.getElementById("score-caption").textContent =
+        `Your best scores: ${DIFFICULTIES[currentLevel].label}`;
+
+      const rows = list.map((score, i) => {
+        const row = document.createElement("tr");
+        const isNew = i === rank;
+        if (isNew) row.className = "new-score";
+        const cells = [
+          isNew ? `${i + 1} new!` : String(i + 1),
+          score.moves,
+          formatTime(score.seconds),
+          score.points,
+          THEMES[score.theme]?.label ?? "?",
+        ];
+        for (const value of cells) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.appendChild(cell);
+        }
+        return row;
+      });
+      document.getElementById("score-rows").replaceChildren(...rows);
+
+      let note = "";
+      if (rank === -1) note = `Not in your top ${MAX_SAVED_SCORES} this time. Try again!`;
+      if (!saved) note += " (Scores can't be saved in this browser, so they reset when you close the page.)";
+      document.getElementById("score-note").textContent = note.trim();
+    }
+
+    // ===== Event Handlers =====
+
+    // One listener on the board handles every card ("event delegation").
+    function handleCardClick(event) {
+      const card = event.target.closest(".card");
+      if (!card) return;  // clicked the gap between cards
+      const index = Number(card.dataset.index);
+
+      // Clicking during the pause flips the wrong pair back right away,
+      // so fast players don't have to wait. (A student suggestion.)
+      if (isChecking) {
+        const clickedWrongPair = revealed.includes(index);
+        flipBackNow();
+        if (clickedWrongPair) return;  // that click was just "hurry up"
+      }
+
+      // Ignore clicks that shouldn't count.
+      if (matched.has(index) || revealed.includes(index)) return;
+
+      startTimer();  // does nothing if the clock is already running
+      revealed.push(index);
+      updateCard(index);
+      playSound("flip");
+
+      if (revealed.length === 2) {
+        checkForMatch();
+      }
+    }
+
+    // Switching level or theme deals a new game right away, since the cards change.
+    function handleLevelClick(event) {
+      const button = event.target.closest(".level-button");
+      if (!button) return;
+      currentLevel = button.dataset.level;
+      startNewGame();
+    }
+
+    function handleThemeChange() {
+      currentTheme = themeSelect.value;
+      startNewGame();
+    }
+
+    function handleSoundToggle() {
+      isMuted = !isMuted;
+      saveMuted();
+      updateSoundButton();
+    }
+
+    function handlePlayAgain() {
+      winDialog.close();
+      startNewGame();
+    }
+
+    board.addEventListener("click", handleCardClick);
+    document.getElementById("difficulty").addEventListener("click", handleLevelClick);
+    themeSelect.addEventListener("change", handleThemeChange);
+    soundButton.addEventListener("click", handleSoundToggle);
+    document.getElementById("new-game").addEventListener("click", startNewGame);
+    document.getElementById("play-again").addEventListener("click", handlePlayAgain);
+
+    // ===== Initialization =====
+    themeSelect.value = currentTheme;
+    updateSoundButton();
+    startNewGame();
+  </script>
+</body>
+</html>
