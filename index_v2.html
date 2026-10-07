@@ -463,6 +463,11 @@
     const MAX_SAVED_SCORES = 5;
     const SCORES_KEY = "memoryMatch.bestScores";
     const MUTE_KEY = "memoryMatch.muted";
+    // Safety ceiling for loudness. Before a note plays, the game adds up the
+    // volume of every note that would overlap it; if the total would go over
+    // this, the new note is skipped. Normal play stays well under it, so it
+    // only matters if many sounds ever pile up at once.
+    const MAX_TOTAL_VOLUME = 0.6;
 
     // Each sound is a list of notes: [frequency in Hz, start time in s, length in s].
     // Making the sounds in code means the game needs no audio files.
@@ -488,6 +493,7 @@
     let flipBackId = null;     // the pending "flip the wrong pair back" timeout
     let winDialogId = null;    // the pending "show the win dialog" timeout
     let audioContext = null;   // created on the first sound (see playSound)
+    let scheduledNotes = [];   // notes playing or about to play: { start, end, volume }
     let isMuted = loadMuted();
 
     // ===== Saved Data (localStorage) =====
@@ -691,17 +697,28 @@
     }
 
     // One beep: a sine-wave tone that fades out.
-    function playNote(frequency, start, length) {
+    function playNote(frequency, start, length, volume = 0.2) {
       const startTime = audioContext.currentTime + start;
+      const endTime = startTime + length;
+
+      // Safety ceiling: forget notes that have finished, then add up the ones
+      // that would overlap this one. Skip this note if it would be too loud.
+      scheduledNotes = scheduledNotes.filter((note) => note.end > audioContext.currentTime);
+      const overlappingVolume = scheduledNotes
+        .filter((note) => note.start < endTime && note.end > startTime)
+        .reduce((total, note) => total + note.volume, 0);
+      if (overlappingVolume + volume > MAX_TOTAL_VOLUME) return;
+      scheduledNotes.push({ start: startTime, end: endTime, volume });
+
       const oscillator = audioContext.createOscillator();
-      const volume = audioContext.createGain();
+      const gain = audioContext.createGain();
       oscillator.frequency.value = frequency;
       // Fading out (instead of stopping dead) avoids an ugly click at the end.
-      volume.gain.setValueAtTime(0.2, startTime);
-      volume.gain.exponentialRampToValueAtTime(0.001, startTime + length);
-      oscillator.connect(volume).connect(audioContext.destination);
+      gain.gain.setValueAtTime(volume, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, endTime);
+      oscillator.connect(gain).connect(audioContext.destination);
       oscillator.start(startTime);
-      oscillator.stop(startTime + length);
+      oscillator.stop(endTime);
     }
 
     // ===== Rendering =====

@@ -628,6 +628,11 @@
     // Its own key, so version 3's scores don't mix with version 2's.
     const SCORES_KEY = "memoryMatch.v3.bestScores";
     const MUTE_KEY = "memoryMatch.muted";
+    // Safety ceiling for loudness. Before a note plays, the game adds up the
+    // volume of every note that would overlap it; if the total would go over
+    // this, the new note is skipped. Normal play stays well under it, so it
+    // only matters if many sounds ever pile up at once.
+    const MAX_TOTAL_VOLUME = 0.6;
 
     // Odd behaviors come in two phases:
     //  1. Opening: 4 or 5 of them, at random moves from 2 to 12. A Hard game
@@ -690,6 +695,7 @@
     let nextLateMove = 0;      // the move for the next anomaly after move 12
     let anomalyTimers = [];    // pending anomaly timeouts, cancelled on a new game
     let audioContext = null;   // created on the first sound (see playSound)
+    let scheduledNotes = [];   // notes playing or about to play: { start, end, volume }
     let isMuted = loadMuted();
 
     // ===== Saved Data (localStorage) =====
@@ -1164,15 +1170,26 @@
     // One beep: a sine-wave tone that fades out.
     function playNote(frequency, start, length, volume) {
       const startTime = audioContext.currentTime + start;
+      const endTime = startTime + length;
+
+      // Safety ceiling: forget notes that have finished, then add up the ones
+      // that would overlap this one. Skip this note if it would be too loud.
+      scheduledNotes = scheduledNotes.filter((note) => note.end > audioContext.currentTime);
+      const overlappingVolume = scheduledNotes
+        .filter((note) => note.start < endTime && note.end > startTime)
+        .reduce((total, note) => total + note.volume, 0);
+      if (overlappingVolume + volume > MAX_TOTAL_VOLUME) return;
+      scheduledNotes.push({ start: startTime, end: endTime, volume });
+
       const oscillator = audioContext.createOscillator();
       const gain = audioContext.createGain();
       oscillator.frequency.value = frequency;
       // Fading out (instead of stopping dead) avoids an ugly click at the end.
       gain.gain.setValueAtTime(volume, startTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, startTime + length);
+      gain.gain.exponentialRampToValueAtTime(0.001, endTime);
       oscillator.connect(gain).connect(audioContext.destination);
       oscillator.start(startTime);
-      oscillator.stop(startTime + length);
+      oscillator.stop(endTime);
     }
 
     // ===== Rendering =====
